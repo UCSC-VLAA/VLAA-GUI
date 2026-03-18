@@ -1,0 +1,121 @@
+# ============================================================
+# Main Model Configurations
+# ============================================================
+
+[model]
+
+provider = ""
+name = ""
+url = ""
+api_key = ""
+thinking = true
+
+
+# ============================================================
+# Grounding & Embedding Configurations
+# ============================================================
+
+[grounding]
+# Specify the grounding model type (supports "MoG", "unified")
+type = "unified"
+
+provider = ""
+url = ""
+api_key = ""
+grounding_model = ""
+
+# To enable rescaling, uncomment and set the desired dimensions.
+# Default is None (no rescaling).
+grounding_width = 1000
+grounding_height = 1000
+# resize_width = 1344 # for ui tars 1344, see https://www.volcengine.com/docs/82379/1362931?lang=zh#token
+
+thinking = true
+thinking_budget = 1024
+temperature = 0.0
+top_p = 0.7
+# https://www.volcengine.com/docs/82379/1584296?lang=zh#bef6afe5
+
+# --- Grounding model config option 2: Self-hosted endpoint ---
+[grounding_endpoint]
+# Specify the endpoint provider, only "HuggingFace" is supported for now.
+provider = ""
+
+# Specify the endpoint URL for your grounding model.
+url = ""
+
+# The API key for the self-hosted grounding model.
+api_key = ""
+
+[coding]
+# Specify the coding model provider (supports "openai", "ark", "qwen").
+provider = ""
+name = ""
+url = ""
+api_key = ""
+
+
+
+[embedding]
+# Specify the embedding engine type (supports "openai", "ark", "qwen").
+engine_type = "openai"
+
+# ============================================================
+# Agent Behavior & Strategy Configurations
+# ============================================================
+
+[perception]
+observation_type = "screenshot"
+
+
+[planning]
+# Specify the planner mode ("proactive", "reactive", "iterative")
+mode = "iterative"
+
+hierarchical_depth = 1
+
+# Enable reflection in the planner. Set to true to enable.
+with_reflection = true
+
+
+[context_management]
+# The search engine to use for web queries. Set to None to disable web search.
+search_engine = "search_agent"
+
+[searcher]
+
+# LLM-based searcher settings (when type = "llm")
+# provider: The LLM provider to use (e.g., "gemini", "openai", "anthropic")
+provider = "gemini"
+
+# model: The specific model to use for search
+model = ""
+
+api_key = ""
+
+thinking = true
+
+thinking_level = "high"
+
+temperature = 1.0
+
+# budget: Maximum number of search steps allowed
+budget = 5
+
+[action_space]
+# The action space to use.
+engine = "pyautogui_coding" # "pyautogui", "pyautogui_coding"
+
+[tts]
+
+use_verifier = true
+
+[gate]
+# Enable enhanced procedural memory with gating strategies.
+enable_gate = true
+
+# Enable loop/cycle detection prompts in the worker system prompt and reflection agent.
+# Only effective when enable_gate = true.
+loop_detection = true
+
+feasibility_check = true

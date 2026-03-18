@@ -1,0 +1,43 @@
+[project]
+name = "vlaa_gui"
+version = "1.1.0"
+description = "A collection of GUI agents for various tasks."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    {name = "VLAA", email = "tbd@email.com"},
+]
+
+dependencies = [
+    "anthropic>=0.84.0",
+    "backoff>=2.2.1",
+    "boto3>=1.42.68",
+    "dashscope>=1.25.14",
+    "google-genai>=1.67.0",
+    "numpy>=2.4.3",
+    "openai>=2.28.0",
+    "pillow>=12.1.1",
+    "pyautogui>=0.9.54",
+    "pyobjc>=12.1; sys_platform == 'darwin'",
+    "scikit-learn>=1.8.0",
+    "tiktoken>=0.12.0",
+    "volcengine-python-sdk>=5.0.17",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.setuptools]
+packages = ["vlaa_gui"]
+
+[project.scripts]
+agent = "vlaa_gui.agent_core.run_agent:main"

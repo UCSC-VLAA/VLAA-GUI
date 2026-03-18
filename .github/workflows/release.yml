@@ -1,0 +1,86 @@
+name: release-on-version-change
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "pyproject.toml"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Detect version change
+        id: version
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          python <<'PY'
+          import os
+          import pathlib
+          import subprocess
+          import tomllib
+
+          pyproject_path = pathlib.Path("pyproject.toml")
+          project = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))["project"]
+          current_version = project["version"]
+
+          previous_version = ""
+          before_sha = os.environ.get("BEFORE_SHA", "")
+          if before_sha and before_sha != "0" * 40:
+              try:
+                  previous_pyproject = subprocess.run(
+                      ["git", "show", f"{before_sha}:pyproject.toml"],
+                      check=True,
+                      capture_output=True,
+                      text=True,
+                  ).stdout
+                  previous_version = tomllib.loads(previous_pyproject)["project"]["version"]
+              except subprocess.CalledProcessError:
+                  previous_version = ""
+
+          version_changed = current_version != previous_version
+          tag_name = f"v{current_version}"
+
+          output_path = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a", encoding="utf-8") as output:
+              output.write(f"current_version={current_version}\n")
+              output.write(f"previous_version={previous_version}\n")
+              output.write(f"tag_name={tag_name}\n")
+              output.write(f"version_changed={'true' if version_changed else 'false'}\n")
+          PY
+
+      - name: Report unchanged version
+        if: steps.version.outputs.version_changed != 'true'
+        run: |
+          echo "Version did not change; skipping release."
+
+      - name: Create GitHub release
+        if: steps.version.outputs.version_changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+        run: |
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists; skipping."
+            exit 0
+          fi
+
+          gh release create "$TAG_NAME" \
+            --title "$TAG_NAME" \
+            --target "${GITHUB_SHA}" \
+            --generate-notes

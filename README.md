@@ -128,7 +128,7 @@ Typical entry points:
 
 ```bash
 uv run python osworld_setup/run_locally.py
-uv run python osworld_setup/run_multienv_vlaa.py
+bash osworld_setup/run_multienv_vlaa.sh
 ```
 
 Use the benchmark-specific README before running either script:
@@ -139,6 +139,7 @@ Practical notes:
 
 - OSWorld runs inside benchmark VMs; the local `agent` CLI does not.
 - For OSWorld, treat `osworld_setup/run_locally.py` as the main single-VM entry point.
+- Use `osworld_setup/run_multienv_vlaa.sh` for the multi-VM path; it parses the full OSWorld-style CLI and forwards normalized args to the Python runner.
 - Keep your config aligned with the environment: use screenshot observations unless you have explicitly verified another perception mode is supported by that runner.
 - Result artifacts, logs, and benchmark outputs are written by the OSWorld runners, not by the local interactive loop.
 

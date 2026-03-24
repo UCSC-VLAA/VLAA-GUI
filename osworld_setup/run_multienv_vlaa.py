@@ -3,7 +3,6 @@ Utils and basic architecture credit to https://github.com/web-arena-x/webarena/b
 """
 
 import argparse
-import copy
 import time
 import datetime
 import json
@@ -11,12 +10,12 @@ import logging
 import os
 import signal
 import sys
-import tomllib
 from dataclasses import dataclass
 from multiprocessing import Process, Manager, current_process, Queue
 from desktop_env.desktop_env import DesktopEnv
 import osworld_setup.lib_run_single_vlaa as lib_run_single_vlaa
 from typing import Any, Dict, List
+from osworld_setup.cli_args import add_and_finalize_args, strip_model_prefix
 
 
 #  Logger Configs {{{ #
@@ -115,24 +114,6 @@ def signal_handler(signum, frame):
                 logger.error(f"Error forcefully terminating process: {e}")
     logger.info("Shutdown complete. Exiting.")
     sys.exit(0)
-
-
-def _strip_model_prefix(model_name: str) -> str:
-    """Strip regional and brand prefixes from Bedrock model names.
-
-    E.g. 'global.anthropic.claude-sonnet-4-6' -> 'claude-sonnet-4-6'
-    """
-    return model_name.rsplit(".", 1)[-1] if "." in model_name else model_name
-
-
-def _get_toml_value(config: Dict, path: List[str], default: Any = None) -> Any:
-    current = config
-    try:
-        for key in path:
-            current = current[key]
-        return current
-    except (KeyError, TypeError):
-        return default
 
 
 def _format_instruction(instruction: str, max_len: int = 120) -> str:
@@ -344,209 +325,13 @@ class RunConfig:
 
     run_idx: int
     result_dir: str
-    config_path: str
+    run_label: str
     args: argparse.Namespace
     engine_params: dict
     reflection_engine_params: dict
     engine_params_for_grounding: dict
     engine_params_for_coding: dict
     engine_params_for_searcher: dict
-
-
-def _apply_toml_config(args: argparse.Namespace, config_path: str) -> None:
-    """Load a TOML config file and apply its values to *args* in-place."""
-    with open(config_path, "rb") as f:
-        toml_cfg = tomllib.load(f)
-
-    # Main Model Config
-    args.model_provider = _get_toml_value(toml_cfg, ["model", "provider"], "openai")
-    args.model = _get_toml_value(toml_cfg, ["model", "name"], "")
-    args.model_dir_name = _strip_model_prefix(args.model)
-    args.model_url = _get_toml_value(toml_cfg, ["model", "url"], "")
-    args.model_api_key = _get_toml_value(toml_cfg, ["model", "api_key"], "")
-    args.model_api_keys = _get_toml_value(toml_cfg, ["model", "api_keys"], [])
-    args.model_temperature = _get_toml_value(toml_cfg, ["model", "temperature"], None)
-    args.model_top_p = _get_toml_value(toml_cfg, ["model", "top_p"], None)
-    args.temperature = args.model_temperature
-    args.max_tokens = _get_toml_value(toml_cfg, ["model", "max_tokens"], None)
-    args.model_project_id = _get_toml_value(toml_cfg, ["model", "project_id"], "")
-    args.model_region = _get_toml_value(toml_cfg, ["model", "region"], "")
-    args.model_aws_keys = _get_toml_value(toml_cfg, ["model", "aws_keys"], [])
-    args.api_version = _get_toml_value(toml_cfg, ["model", "api_version"], "")
-    args.model_thinking = _get_toml_value(toml_cfg, ["model", "thinking"], False)
-    args.model_thinking_level = _get_toml_value(
-        toml_cfg, ["model", "thinking_level"], None
-    )
-    args.model_thinking_budget = _get_toml_value(
-        toml_cfg, ["model", "thinking_budget"], None
-    )
-    args.model_reasoning_effort = _get_toml_value(
-        toml_cfg, ["model", "reasoning_effort"], args.model_thinking_level
-    )
-    args.model_include_thoughts = _get_toml_value(
-        toml_cfg, ["model", "include_thoughts"], False
-    )
-
-    # Grounding Model Config
-    args.grounding_model_provider = _get_toml_value(
-        toml_cfg, ["grounding", "provider"], "openai"
-    )
-    args.grounding_model = _get_toml_value(
-        toml_cfg, ["grounding", "grounding_model"], ""
-    )
-    args.grounding_model_url = _get_toml_value(toml_cfg, ["grounding", "url"], "")
-    args.grounding_model_api_key = _get_toml_value(
-        toml_cfg, ["grounding", "api_key"], ""
-    )
-    args.grounding_width = _get_toml_value(
-        toml_cfg, ["grounding", "grounding_width"], None
-    )
-    args.grounding_height = _get_toml_value(
-        toml_cfg, ["grounding", "grounding_height"], None
-    )
-    args.resize_width = _get_toml_value(toml_cfg, ["grounding", "resize_width"], None)
-    args.grounding_model_region = _get_toml_value(
-        toml_cfg, ["grounding", "region"], args.model_region
-    )
-    args.enable_zoom_grounding = _get_toml_value(
-        toml_cfg, ["grounding", "enable_zoom_grounding"], False
-    )
-    args.zoom_grounding_crop_ratio = _get_toml_value(
-        toml_cfg, ["grounding", "zoom_grounding_crop_ratio"], 0.5
-    )
-    args.grounding_model_type = _get_toml_value(
-        toml_cfg, ["grounding", "type"], "single"
-    )
-    args.grounding_thinking = _get_toml_value(
-        toml_cfg, ["grounding", "thinking"], False
-    )
-    args.grounding_temperature = _get_toml_value(
-        toml_cfg, ["grounding", "temperature"], None
-    )
-    args.grounding_top_p = _get_toml_value(toml_cfg, ["grounding", "top_p"], None)
-    args.grounding_thinking_budget = _get_toml_value(
-        toml_cfg, ["grounding", "thinking_budget"], None
-    )
-    args.grounding_thinking_level = _get_toml_value(
-        toml_cfg, ["grounding", "thinking_level"], None
-    )
-    args.grounding_reasoning_effort = _get_toml_value(
-        toml_cfg,
-        ["grounding", "reasoning_effort"],
-        args.grounding_thinking_level,
-    )
-    args.grounding_include_thoughts = _get_toml_value(
-        toml_cfg, ["grounding", "include_thoughts"], False
-    )
-
-    # Self-hosted Endpoint Config
-    args.endpoint_provider = _get_toml_value(
-        toml_cfg, ["grounding_endpoint", "provider"], ""
-    )
-    args.endpoint_url = _get_toml_value(toml_cfg, ["grounding_endpoint", "url"], "")
-    args.endpoint_api_key = _get_toml_value(
-        toml_cfg, ["grounding_endpoint", "api_key"], ""
-    )
-
-    # Coding model config
-    args.coding_model_provider = _get_toml_value(
-        toml_cfg, ["coding", "provider"], "openai"
-    )
-    args.coding_model = _get_toml_value(toml_cfg, ["coding", "name"], "")
-    args.coding_model_url = _get_toml_value(toml_cfg, ["coding", "url"], "")
-    args.coding_model_api_key = _get_toml_value(toml_cfg, ["coding", "api_key"], "")
-    args.coding_model_api_keys = _get_toml_value(toml_cfg, ["coding", "api_keys"], [])
-    args.coding_model_temperature = _get_toml_value(
-        toml_cfg, ["coding", "temperature"], None
-    )
-    args.coding_model_top_p = _get_toml_value(toml_cfg, ["coding", "top_p"], None)
-    args.coding_model_thinking = _get_toml_value(
-        toml_cfg, ["coding", "thinking"], False
-    )
-    args.coding_model_thinking_budget = _get_toml_value(
-        toml_cfg, ["coding", "thinking_budget"], None
-    )
-    args.coding_model_thinking_level = _get_toml_value(
-        toml_cfg, ["coding", "thinking_level"], None
-    )
-    args.coding_model_include_thoughts = _get_toml_value(
-        toml_cfg, ["coding", "include_thoughts"], False
-    )
-
-    # Embedding Config
-    args.embedding_engine_type = _get_toml_value(
-        toml_cfg, ["embedding", "engine_type"], "openai"
-    )
-
-    # Perception
-    args.observation_type = _get_toml_value(
-        toml_cfg, ["perception", "observation_type"], "screenshot"
-    )
-
-    # Planning
-    args.planner_hierarchical_depth = _get_toml_value(
-        toml_cfg, ["planning", "hierarchical_depth"], 1
-    )
-    args.with_reflection = _get_toml_value(
-        toml_cfg, ["planning", "with_reflection"], False
-    )
-    args.reflection_thinking = _get_toml_value(
-        toml_cfg, ["planning", "reflection_thinking"], args.model_thinking
-    )
-    args.use_recon = _get_toml_value(toml_cfg, ["planning", "use_recon"], False)
-
-    # Context Management
-    args.search_engine = _get_toml_value(
-        toml_cfg, ["context_management", "search_engine"], None
-    )
-    args.kb_name = _get_toml_value(
-        toml_cfg, ["context_management", "kb_name"], "agent_memory"
-    )
-    args.memory_type = _get_toml_value(
-        toml_cfg, ["context_management", "memory_type"], "mixed"
-    )
-    args.memory_representation = _get_toml_value(
-        toml_cfg, ["context_management", "memory_representation"], "vector"
-    )
-    args.knowledge_storage = _get_toml_value(
-        toml_cfg, ["context_management", "knowledge_storage"], "db"
-    )
-
-    # Searcher agent config
-    args.searcher_type = _get_toml_value(toml_cfg, ["searcher", "type"], "llm")
-    args.searcher_provider = _get_toml_value(
-        toml_cfg, ["searcher", "provider"], "gemini"
-    )
-    args.searcher_model = _get_toml_value(
-        toml_cfg, ["searcher", "model"], "gemini-3-flash-preview"
-    )
-    args.searcher_api_key = _get_toml_value(toml_cfg, ["searcher", "api_key"], "")
-    args.searcher_api_keys = _get_toml_value(toml_cfg, ["searcher", "api_keys"], [])
-    args.searcher_url = _get_toml_value(toml_cfg, ["searcher", "url"], "")
-    args.searcher_budget = _get_toml_value(toml_cfg, ["searcher", "budget"], 20)
-    args.searcher_temperature = _get_toml_value(
-        toml_cfg, ["searcher", "temperature"], None
-    )
-    args.searcher_top_p = _get_toml_value(toml_cfg, ["searcher", "top_p"], None)
-    args.searcher_reasoning_effort = _get_toml_value(
-        toml_cfg, ["searcher", "reasoning_effort"], None
-    )
-
-    # Gating Strategies
-    args.enable_gate = _get_toml_value(toml_cfg, ["gate", "enable_gate"], False)
-    args.loop_detection = _get_toml_value(toml_cfg, ["gate", "loop_detection"], False)
-    args.feasibility_check = _get_toml_value(
-        toml_cfg, ["gate", "feasibility_check"], False
-    )
-
-    # Action Space
-    args.action_space = _get_toml_value(
-        toml_cfg, ["action_space", "engine"], "pyautogui"
-    )
-
-    # TTS
-    args.action_tts_num = _get_toml_value(toml_cfg, ["tts", "action_tts_num"], 1)
-    args.use_verifier = _get_toml_value(toml_cfg, ["tts", "use_verifier"], False)
 
 
 def _build_engine_params(args: argparse.Namespace) -> tuple:
@@ -655,62 +440,21 @@ def _build_engine_params(args: argparse.Namespace) -> tuple:
 
 
 def build_run_configs(shared_args: argparse.Namespace) -> list:
-    """Build a list of RunConfig from shared CLI args.
-
-    When ``--runs-file`` is provided, each entry in the JSON array becomes a
-    separate RunConfig with its own TOML config.  Otherwise, a single RunConfig
-    is created from the existing ``--result_dir`` / ``--config-path`` pair.
-    """
-    if shared_args.runs_file:
-        with open(shared_args.runs_file, "r", encoding="utf-8") as f:
-            runs = json.load(f)
-        if not isinstance(runs, list) or not runs:
-            raise ValueError("--runs-file must contain a non-empty JSON array")
-        run_configs: list[RunConfig] = []
-        for i, entry in enumerate(runs):
-            if "result_dir" not in entry or "config_path" not in entry:
-                raise ValueError(
-                    f"Each entry in --runs-file must have 'result_dir' and "
-                    f"'config_path' keys (entry {i})"
-                )
-            run_args = copy.deepcopy(shared_args)
-            run_args.result_dir = entry["result_dir"]
-            run_args.config_path = entry["config_path"]
-            if not os.path.exists(run_args.config_path):
-                raise FileNotFoundError(
-                    f"Config file not found for run {i}: {run_args.config_path}"
-                )
-            _apply_toml_config(run_args, run_args.config_path)
-            ep, rep, epg, epc, eps = _build_engine_params(run_args)
-            run_configs.append(
-                RunConfig(
-                    run_idx=i,
-                    result_dir=entry["result_dir"],
-                    config_path=entry["config_path"],
-                    args=run_args,
-                    engine_params=ep,
-                    reflection_engine_params=rep,
-                    engine_params_for_grounding=epg,
-                    engine_params_for_coding=epc,
-                    engine_params_for_searcher=eps,
-                )
-            )
-        return run_configs
-    else:
-        ep, rep, epg, epc, eps = _build_engine_params(shared_args)
-        return [
-            RunConfig(
-                run_idx=0,
-                result_dir=shared_args.result_dir,
-                config_path=shared_args.config_path,
-                args=shared_args,
-                engine_params=ep,
-                reflection_engine_params=rep,
-                engine_params_for_grounding=epg,
-                engine_params_for_coding=epc,
-                engine_params_for_searcher=eps,
-            )
-        ]
+    """Build the single run configuration from explicit CLI arguments."""
+    ep, rep, epg, epc, eps = _build_engine_params(shared_args)
+    return [
+        RunConfig(
+            run_idx=0,
+            result_dir=shared_args.result_dir,
+            run_label=shared_args.model_dir_name or strip_model_prefix(shared_args.model),
+            args=shared_args,
+            engine_params=ep,
+            reflection_engine_params=rep,
+            engine_params_for_grounding=epg,
+            engine_params_for_coding=epc,
+            engine_params_for_searcher=eps,
+        )
+    ]
 
 
 def run_env_tasks(
@@ -820,7 +564,7 @@ def run_env_tasks(
 
             agent_cache[run_idx] = (agent, verifier, recon)
             logger.info(
-                f"[{proc_name}] Created agents for run {run_idx} ({rc.config_path})"
+                f"[{proc_name}] Created agents for run {run_idx} ({rc.run_label})"
             )
             return agent_cache[run_idx]
 
@@ -946,107 +690,9 @@ def run_env_tasks(
 
 def config() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run end-to-end evaluation on the benchmark"
+        description="Run end-to-end evaluation on OSWorld with the VLAA agent"
     )
-
-    # =======================================================================
-    # 1. environment configurations
-    # =======================================================================
-
-    parser.add_argument(
-        "--result_dir",
-        type=str,
-        default="traj",
-    )
-    parser.add_argument(
-        "--num_envs",
-        type=int,
-        default=50,
-        help="Number of environments to run in parallel",
-    )
-    parser.add_argument(
-        "--config-path",
-        type=str,
-        default="config/wo-done-gemini.toml",
-        help="Path to the agent model configuration TOML file.",
-    )
-    parser.add_argument(
-        "--test_all_meta_path",
-        type=str,
-        default="evaluation_examples/test_nogdrive.json",
-    )
-    parser.add_argument("--max_steps", type=int, default=100)
-
-    # logging
-    parser.add_argument(
-        "--headless", type=bool, default=True, help="Run in headless mode"
-    )
-    parser.add_argument(
-        "--debug",
-        type=bool,
-        default=False,
-        help="Enable debug mode with verbose logging.",
-    )
-
-    # Environment config
-    parser.add_argument(
-        "--provider_name",
-        type=str,
-        default="aws",
-        help="Virtualization provider (vmware, docker, aws, azure, gcp, virtualbox)",
-    )
-    parser.add_argument(
-        "--region", type=str, default="us-east-1", help="AWS region for the VM"
-    )
-
-    parser.add_argument(
-        "--client_password", type=str, default="", help="Client password"
-    )
-    parser.add_argument("--path_to_vm", type=str, default=None)
-    parser.add_argument("--screen_width", type=int, default=1920)
-    parser.add_argument("--screen_height", type=int, default=1080)
-    parser.add_argument("--sleep_after_execution", type=float, default=1.0)
-
-    # Data config
-    parser.add_argument("--domain", type=str, default="all")
-
-    parser.add_argument(
-        "--test_config_base_dir", type=str, default="evaluation_examples"
-    )
-    parser.add_argument("--max_trajectory_length", type=int, default=8)
-
-    # =======================================================================
-    # 2. model configuration file path (new core parameter)
-    # =======================================================================
-
-    # Multi-run support: --runs-file overrides --result_dir and --config-path
-    parser.add_argument(
-        "--runs-file",
-        type=str,
-        default=None,
-        help=(
-            "Path to a JSON file listing multiple (result_dir, config_path) "
-            "pairs to run on a shared VM pool.  When provided, --result_dir "
-            "and --config-path are ignored."
-        ),
-    )
-
-    args = parser.parse_args()
-
-    # Default AWS password per README: osworld-public-evaluation
-    if args.provider_name == "aws" and not args.client_password:
-        args.client_password = "osworld-public-evaluation"
-
-    # When --runs-file is given, TOML loading is deferred to build_run_configs().
-    if not args.runs_file:
-        if not os.path.exists(args.config_path):
-            raise FileNotFoundError(
-                f"Configuration file not found at: {args.config_path}"
-            )
-        print(f"Loading model configuration from: {args.config_path}")
-        _apply_toml_config(args, args.config_path)
-
-    return args
+    return add_and_finalize_args(parser, include_num_envs=True)
 
 
 def _result_base_dir(rc: RunConfig) -> str:
@@ -1272,16 +918,14 @@ def get_result(action_space, use_model, observation_type, result_dir, total_file
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    ####### The complete version of the list of examples #######
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     args = config()
 
-    # Build RunConfig list (single entry for legacy CLI, N entries for --runs-file)
     run_configs = build_run_configs(args)
     logger.info(f"Number of run configs: {len(run_configs)}")
     for rc in run_configs:
         logger.info(
-            f"  Run {rc.run_idx}: config={rc.config_path} result_dir={rc.result_dir}"
+            f"  Run {rc.run_idx}: label={rc.run_label} result_dir={rc.result_dir}"
         )
 
     # Save per-run args.json
@@ -1325,7 +969,7 @@ if __name__ == "__main__":
         left_info = ""
         for domain in unfinished:
             left_info += f"{domain}: {len(unfinished[domain])}\n"
-        logger.info(f"[Run {rc.run_idx} ({rc.config_path})] Left tasks:\n{left_info}")
+        logger.info(f"[Run {rc.run_idx} ({rc.run_label})] Left tasks:\n{left_info}")
 
         get_result(
             rc.args.action_space,

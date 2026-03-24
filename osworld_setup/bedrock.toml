@@ -61,9 +61,6 @@ observation_type = "screenshot"
 
 
 [planning]
-# Specify the planner mode ("proactive", "reactive", "iterative")
-mode = "iterative"
-
 hierarchical_depth = 1
 
 # Enable reflection in the planner. Set to true to enable.
@@ -116,23 +113,3 @@ loop_detection = true
 
 # Enable feasibility management and small target policy prompts.
 feasibility_check = true
-
-
-[click_validation]
-# Enable click validation to verify click coordinates using a vision model
-# before executing clicks. When enabled, the agent will:
-# 1. Generate initial click coordinates using the grounding model
-# 2. Annotate the screenshot with the proposed click location
-# 3. Ask a validation agent to verify if the click is on target
-# 4. If invalid, re-ground using the annotated screenshot and retry
-
-enabled = false
-
-zoom_refine_on_failure = false
-# Crop size ratio relative to the grounding screenshot (0.5 means crop half width/height, then resize back).
-zoom_crop_ratio = 0.6
-
-# Maximum number of retry attempts if click validation fails
-max_retries = 5
-
-# Optional: Use a separate model for validation (defaults to main model if not set)

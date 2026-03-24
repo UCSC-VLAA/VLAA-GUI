@@ -14,9 +14,6 @@ def _make_macos_aci() -> MacOSACI:
     agent.resize_width = None
     agent.width = 1920
     agent.height = 1080
-    agent.enable_click_validation = False
-    agent.click_validator = None
-    agent.click_validation_zoom_refine_on_failure = False
     agent.debug = False
     agent.resize_coordinates = lambda coords: tuple(coords)
     return agent

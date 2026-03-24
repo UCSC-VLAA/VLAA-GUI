@@ -16,7 +16,6 @@ from vlaa_gui.agent_core.utils.common_utils import (
 )
 from vlaa_gui.agent_core.agents.coding_agent import CodeAgent
 from vlaa_gui.agent_core.agents.search_agent import SearcherAgent
-from vlaa_gui.agent_core.agents.click_validator import ClickValidatorAgent
 
 import logging
 
@@ -185,11 +184,6 @@ class OSWorldACI(ACI):
         grounding_model_type: str = "MoG",  # "MoG" or "unified"
         code_agent_engine_params: dict = None,
         code_agent_budget: int = 20,
-        enable_click_validation: bool = False,
-        click_validation_engine_params: dict = None,
-        click_validation_max_retries: int = 3,
-        click_validation_zoom_refine_on_failure: bool = False,
-        click_validation_zoom_crop_ratio: float = 0.5,
         enable_zoom_grounding: bool = False,
         zoom_grounding_crop_ratio: float = 0.5,
         debug: bool = False,
@@ -249,26 +243,6 @@ class OSWorldACI(ACI):
         self._code_agent_constraint_fail_count = 0
 
         self.observation_type = observation_type
-
-        # Configure click validation
-        self.enable_click_validation = enable_click_validation
-        self.click_validation_zoom_refine_on_failure = (
-            click_validation_zoom_refine_on_failure
-        )
-        self.click_validation_zoom_crop_ratio = click_validation_zoom_crop_ratio
-        self.click_validator = None
-        self.last_click_validation_history = None
-        if enable_click_validation:
-            validator_params = (
-                click_validation_engine_params or engine_params_for_generation
-            )
-            self.click_validator = ClickValidatorAgent(
-                engine_params=validator_params,
-                max_retries=click_validation_max_retries,
-            )
-            logger.info(
-                f"Click validation enabled with max_retries={click_validation_max_retries}"
-            )
 
     def _get_grounding_coordinate_space(self) -> Tuple[int, int]:
         if {"grounding_width", "grounding_height"}.issubset(
@@ -629,41 +603,6 @@ class OSWorldACI(ACI):
         """Set the current task instruction for the code agent."""
         self.current_task_instruction = task_instruction
 
-    def get_last_click_validation_history(self) -> Dict:
-        """Get the validation history from the last click action.
-
-        Returns:
-            Dictionary containing validation attempts and results, or None if
-            click validation is disabled or no click has been performed yet.
-        """
-        return self.last_click_validation_history
-
-    def set_click_validation(self, enabled: bool, max_retries: int = None):
-        """Enable or disable click validation at runtime.
-
-        Args:
-            enabled: Whether to enable click validation
-            max_retries: Optional new max retries value
-        """
-        self.enable_click_validation = enabled
-        if enabled and self.click_validator is None:
-            # Create validator if it doesn't exist
-            from vlaa_gui.agent_core.agents.click_validator import (
-                ClickValidatorAgent,
-            )
-
-            validator_params = self.engine_params_for_generation
-            retries = max_retries if max_retries is not None else 3
-            self.click_validator = ClickValidatorAgent(
-                engine_params=validator_params,
-                max_retries=retries,
-            )
-            logger.info(
-                f"Click validation enabled at runtime with max_retries={retries}"
-            )
-        elif enabled and max_retries is not None and self.click_validator is not None:
-            self.click_validator.max_retries = max_retries
-
     # Resize from grounding model dim into OSWorld dim (1920 * 1080)
     def resize_coordinates(self, coordinates: List[int]) -> List[int]:
         # User explicitly passes the grounding model dimensions
@@ -726,82 +665,10 @@ class OSWorldACI(ACI):
             hold_keys:List, list of keys to hold while clicking
         """
         coords1 = self.coords1
-        screenshot_bytes = self.obs.get("screenshot") if self.obs else None
-        resize_target_size = None
-        if self.resize_width is not None:
-            resize_height = int(self.resize_width / self.width * self.height)
-            resize_target_size = (self.resize_width, resize_height)
-
-        grounding_screenshot_bytes = screenshot_bytes
-        if screenshot_bytes and resize_target_size is not None:
-            grounding_screenshot_bytes = resize_screenshot(
-                screenshot_bytes, resize_target_size
-            )
-
         if coords1 is None:
-            if (
-                self.enable_click_validation
-                and self.click_validator is not None
-                and self.click_validation_zoom_refine_on_failure
-                and grounding_screenshot_bytes is not None
-            ):
-                # Always start with a coarse (single-pass) coordinate for verifier-gated zoom refinement.
-                coords1 = list(
-                    self._ground_single_pass(
-                        element_description,
-                        grounding_screenshot_bytes,
-                    )
-                )
-            else:
-                coords1 = self.generate_coords(element_description, self.obs)
+            coords1 = self.generate_coords(element_description, self.obs)
 
         x, y = self.resize_coordinates(coords1)
-
-        # If click validation is enabled, validate and potentially correct the click
-        if self.enable_click_validation and self.click_validator is not None:
-            logger.info(f"Validating click at ({x}, {y}) for: {element_description}")
-
-            # Get the screenshot for validation
-            if screenshot_bytes:
-                if self.click_validation_zoom_refine_on_failure:
-                    (x, y), validation_history = (
-                        self.click_validator.validate_and_correct_click_with_zoom(
-                            validation_screenshot_bytes=screenshot_bytes,
-                            grounding_screenshot_bytes=grounding_screenshot_bytes
-                            or screenshot_bytes,
-                            initial_model_coords=(coords1[0], coords1[1]),
-                            element_description=element_description,
-                            grounding_model=self.grounding_model,
-                            model_coordinate_space=self._get_grounding_coordinate_space(),
-                            resize_coordinates_fn=self.resize_coordinates,
-                            crop_ratio=self.click_validation_zoom_crop_ratio,
-                            debug=self.debug,
-                        )
-                    )
-                else:
-                    (x, y), validation_history = (
-                        self.click_validator.validate_and_correct_click(
-                            screenshot_bytes=screenshot_bytes,
-                            initial_coords=(x, y),
-                            element_description=element_description,
-                            grounding_model=self.grounding_model,
-                            resize_coordinates_fn=self.resize_coordinates,
-                            resize_screenshot_fn=resize_screenshot,
-                            resize_target_size=resize_target_size,
-                            debug=self.debug,
-                        )
-                    )
-
-                # Store validation history for debugging/logging
-                self.last_click_validation_history = validation_history
-
-                if validation_history.get("final_valid"):
-                    logger.info(f"Click validated successfully at ({x}, {y})")
-                else:
-                    logger.warning(
-                        f"Click validation failed after {validation_history.get('total_retries', 0)} retries. "
-                        f"Using coordinates ({x}, {y})"
-                    )
 
         command = "import pyautogui; "
 

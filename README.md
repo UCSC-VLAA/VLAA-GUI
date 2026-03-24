@@ -6,9 +6,9 @@ VLAA-GUI is a Python framework for building and evaluating GUI agents that act t
 
 - An interactive local desktop agent exposed as the `agent` CLI.
 - A planner-executor stack with explicit grounding, reflection, and token tracking.
-- Optional retrieval, episodic/narrative memory, zoom grounding, click validation, and code execution.
+- Optional retrieval, episodic/narrative memory, zoom grounding, and code execution.
 - Integration code for OSWorld and WindowsAgentArena evaluations.
-- Unit tests around grounding, click validation, hover actions, and platform-specific behavior.
+- Unit tests around grounding, hover actions, and platform-specific behavior.
 
 ## Core architecture
 
@@ -78,10 +78,9 @@ Then fill in the sections you actually need:
 - `[coding]`: model used by the optional coding agent
 - `[embedding]`: embedding backend for memory retrieval
 - `[perception]`: observation type such as `screenshot` or `a11y_tree`
-- `[planning]`: `proactive`, `reactive`, or `iterative`
+- `[planning]`: reflection and planner depth settings
 - `[context_management]`: retrieval backend and memory mode
 - `[action_space]`: `pyautogui` or `pyautogui_coding`
-- `[click_validation]`: optional second-pass click verification
 
 Important runtime notes:
 
@@ -170,8 +169,6 @@ AWS_PROFILE=my-bedrock-profile ./scripts/run-agent-full-bedrock.sh --config-path
 
 - `grounding.enable_zoom_grounding = true`
   - Run a coarse grounding pass and then refine on a zoomed crop.
-- `click_validation.enabled = true`
-  - Validate proposed click coordinates before execution.
 - `context_management.memory_type = "episodic"` or `"mixed"`
   - Turn on memory retrieval and memory updates.
 - `context_management.search_engine = "llm"` or `"perplexica"`

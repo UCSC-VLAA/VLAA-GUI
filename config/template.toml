@@ -69,9 +69,6 @@ observation_type = "screenshot"
 
 
 [planning]
-# Specify the planner mode ("proactive", "reactive", "iterative")
-mode = "iterative"
-
 hierarchical_depth = 1
 
 # Enable reflection in the planner. Set to true to enable.

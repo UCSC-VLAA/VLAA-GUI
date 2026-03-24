@@ -430,7 +430,6 @@ def _apply_toml_config(args: argparse.Namespace, config_path: str) -> Dict[str, 
     args.observation_type = _get_toml_value(
         toml_cfg, ["perception", "observation_type"], "screenshot"
     )
-    args.planner_mode = _get_toml_value(toml_cfg, ["planning", "mode"], "proactive")
     args.planner_hierarchical_depth = _get_toml_value(
         toml_cfg, ["planning", "hierarchical_depth"], 1
     )
@@ -491,37 +490,6 @@ def _apply_toml_config(args: argparse.Namespace, config_path: str) -> Dict[str, 
     )
     args.action_tts_num = _get_toml_value(toml_cfg, ["tts", "action_tts_num"], 1)
     args.use_verifier = _get_toml_value(toml_cfg, ["verifier", "enabled"], True)
-
-    args.enable_click_validation = _get_toml_value(
-        toml_cfg, ["click_validation", "enabled"], False
-    )
-    args.click_validation_max_retries = _get_toml_value(
-        toml_cfg, ["click_validation", "max_retries"], 3
-    )
-    args.click_validation_zoom_refine_on_failure = _get_toml_value(
-        toml_cfg, ["click_validation", "zoom_refine_on_failure"], False
-    )
-    args.click_validation_zoom_crop_ratio = _get_toml_value(
-        toml_cfg, ["click_validation", "zoom_crop_ratio"], 0.5
-    )
-    args.click_validation_provider = _get_toml_value(
-        toml_cfg, ["click_validation", "provider"], None
-    )
-    args.click_validation_model = _get_toml_value(
-        toml_cfg, ["click_validation", "model"], None
-    )
-    args.click_validation_url = _get_toml_value(
-        toml_cfg, ["click_validation", "url"], None
-    )
-    args.click_validation_api_key = _get_toml_value(
-        toml_cfg, ["click_validation", "api_key"], None
-    )
-    args.click_validation_temperature = _get_toml_value(
-        toml_cfg, ["click_validation", "temperature"], None
-    )
-    args.click_validation_top_p = _get_toml_value(
-        toml_cfg, ["click_validation", "top_p"], None
-    )
 
     return toml_cfg
 
@@ -655,7 +623,6 @@ def run_agent(
     observation_type: str,
     action_space: str,
     with_reflection: bool = True,
-    planner_mode: str = "proactive",
     verifier_agent: Optional[VerifierAgent] = None,
 ) -> Optional[Dict[str, Any]]:
     global paused
@@ -666,7 +633,6 @@ def run_agent(
 
     obs = {}
     traj = "Task:\n" + instruction
-    subtask_traj = ""
     traj_lines = [f"Task: {instruction}"]
     for step in range(max_steps):
         # Check if we're in paused state and wait
@@ -728,7 +694,6 @@ def run_agent(
                     reason=verdict.get("reason", ""),
                     missing_steps=verdict.get("missing_steps", ""),
                 )
-                subtask_traj = ""
                 continue
             else:
                 if platform.system() == "Darwin":
@@ -783,9 +748,6 @@ def run_agent(
                     + "\n\n----------------------\n\nPlan:\n"
                     + info["executor_plan"]
                 )
-            if planner_mode != "iterative":
-                subtask_traj = agent.update_episodic_memory(info, subtask_traj)
-
     # Write token usage to file after task completion
     try:
         csv_path, json_path = token_tracker.write_both()
@@ -868,17 +830,6 @@ def main():
         coding_agent_flag = False
         local_env = None
 
-    click_validation_engine_params = None
-    if args.enable_click_validation and args.click_validation_provider:
-        click_validation_engine_params = {
-            "engine_type": args.click_validation_provider,
-            "model": args.click_validation_model,
-            "base_url": args.click_validation_url or "",
-            "api_key": args.click_validation_api_key or "",
-            "temperature": getattr(args, "click_validation_temperature", None),
-            "top_p": getattr(args, "click_validation_top_p", None),
-        }
-
     args.observation_type = _normalize_observation_type_for_platform(
         current_platform, args.observation_type
     )
@@ -896,11 +847,6 @@ def main():
         grounding_model_type=args.grounding_model_type,
         code_agent_engine_params=engine_params_for_coding,
         code_agent_budget=20,
-        enable_click_validation=args.enable_click_validation,
-        click_validation_engine_params=click_validation_engine_params,
-        click_validation_max_retries=args.click_validation_max_retries,
-        click_validation_zoom_refine_on_failure=args.click_validation_zoom_refine_on_failure,
-        click_validation_zoom_crop_ratio=args.click_validation_zoom_crop_ratio,
         enable_zoom_grounding=args.enable_zoom_grounding,
         zoom_grounding_crop_ratio=args.zoom_grounding_crop_ratio,
         debug=args.debug,
@@ -919,7 +865,6 @@ def main():
         search_engine=args.search_engine,
         embedding_engine_type=args.embedding_engine_type,
         embedding_engine_params=engine_params_for_embedding,
-        planning_mode=args.planner_mode,
         with_reflection=args.with_reflection,
         reflection_engine_params=reflection_engine_params,
         memory_type=args.memory_type,
@@ -932,7 +877,7 @@ def main():
         feasibility_check=args.feasibility_check,
     )
 
-    token_summaries = load_previous_token_summaries(log_dir)
+    token_summaries = load_previous_token_summaries('token_summaries')
 
     while True:
         query = input("Query: ")
@@ -950,13 +895,12 @@ def main():
             observation_type=args.observation_type,
             action_space=args.action_space,
             with_reflection=args.with_reflection,
-            planner_mode=args.planner_mode,
             verifier_agent=verifier_agent,
         )
 
         if summary:
             token_summaries.append(summary)
-            summary_path = write_token_usage_markdown(token_summaries, log_dir)
+            summary_path = write_token_usage_markdown(token_summaries, 'token_summaries')
             print(f"Updated aggregate token summary: {summary_path}")
 
         response = input("Would you like to provide another query? (y/n): ")

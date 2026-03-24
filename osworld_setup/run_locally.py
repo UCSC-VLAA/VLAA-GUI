@@ -253,14 +253,6 @@ def config() -> argparse.Namespace:
 
     # Planning
     parser.add_argument(
-        "--planner_mode",
-        type=str,
-        default=get_config_value(
-            config, "planner_mode", "proactive", "planning", "mode"
-        ),
-        help="Specify the planner mode.",
-    )
-    parser.add_argument(
         "--planner_hierarchical_depth",
         type=int,
         default=get_config_value(
@@ -342,56 +334,6 @@ def config() -> argparse.Namespace:
         help="Number of TTS actions to perform per step.",
     )
 
-    # Click Validation
-    parser.add_argument(
-        "--enable_click_validation",
-        type=bool,
-        default=get_config_value(
-            config, "enable_click_validation", False, "click_validation", "enabled"
-        ),
-        help="Enable click validation to verify click coordinates.",
-    )
-    parser.add_argument(
-        "--click_validation_max_retries",
-        type=int,
-        default=get_config_value(
-            config, "click_validation_max_retries", 3, "click_validation", "max_retries"
-        ),
-        help="Maximum retries for click validation.",
-    )
-    parser.add_argument(
-        "--click_validation_provider",
-        type=str,
-        default=get_config_value(
-            config, "click_validation_provider", None, "click_validation", "provider"
-        ),
-        help="Provider for click validation model.",
-    )
-    parser.add_argument(
-        "--click_validation_model",
-        type=str,
-        default=get_config_value(
-            config, "click_validation_model", None, "click_validation", "model"
-        ),
-        help="Model for click validation.",
-    )
-    parser.add_argument(
-        "--click_validation_url",
-        type=str,
-        default=get_config_value(
-            config, "click_validation_url", None, "click_validation", "url"
-        ),
-        help="URL for click validation model.",
-    )
-    parser.add_argument(
-        "--click_validation_api_key",
-        type=str,
-        default=get_config_value(
-            config, "click_validation_api_key", None, "click_validation", "api_key"
-        ),
-        help="API key for click validation model.",
-    )
-
     args = parser.parse_args()
 
     # If a config file was found, override args with any command-line values that were explicitly set
@@ -470,16 +412,6 @@ def test(args: argparse.Namespace, test_all_meta: dict) -> None:
             "grounding_height": grounding_height,
         }
 
-    # Build click validation engine params if configured
-    click_validation_engine_params = None
-    if args.enable_click_validation and args.click_validation_provider:
-        click_validation_engine_params = {
-            "engine_type": args.click_validation_provider,
-            "model": args.click_validation_model,
-            "base_url": args.click_validation_url or "",
-            "api_key": args.click_validation_api_key or "",
-        }
-
     # NEW!
     grounding_agent = OSWorldACI(
         platform="linux",
@@ -488,9 +420,6 @@ def test(args: argparse.Namespace, test_all_meta: dict) -> None:
         width=args.screen_width,
         height=args.screen_height,
         grounding_model_type=args.grounding_model_type,
-        enable_click_validation=args.enable_click_validation,
-        click_validation_engine_params=click_validation_engine_params,
-        click_validation_max_retries=args.click_validation_max_retries,
     )
 
     # NEW!
@@ -500,7 +429,6 @@ def test(args: argparse.Namespace, test_all_meta: dict) -> None:
         platform="linux",
         action_space="pyautogui",
         observation_type=args.observation_type,
-        planning_mode=args.planner_mode,
         # planner_hierarchical_depth=args.planner_hierarchical_depth,
         with_reflection=args.with_reflection,
         lexical_weight=args.lexical_weight,

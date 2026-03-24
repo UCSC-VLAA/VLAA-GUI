@@ -78,7 +78,6 @@ class ZooAgent:
         planning_cfg = cfg.get("planning", {})
         ctx_cfg = cfg.get("context_management", {})
         action_cfg = cfg.get("action_space", {})
-        click_cfg = cfg.get("click_validation", {})
         searcher_cfg = cfg.get("searcher", {})
         tts_cfg = cfg.get("tts", {})
 
@@ -152,22 +151,8 @@ class ZooAgent:
             "include_thoughts": coding_cfg.get("include_thoughts", False),
         }
 
-        # Click validation --------------------------------------------------
-        click_validation_engine_params = None
-        enable_click_validation = click_cfg.get("enabled", False)
-        if enable_click_validation and click_cfg.get("provider"):
-            click_validation_engine_params = {
-                "engine_type": click_cfg["provider"],
-                "model": click_cfg.get("model", ""),
-                "base_url": click_cfg.get("url", ""),
-                "api_key": click_cfg.get("api_key", ""),
-                "temperature": click_cfg.get("temperature"),
-                "top_p": click_cfg.get("top_p"),
-            }
-
         # Resolved observation / planning config ----------------------------
         obs_type = perception_cfg.get("observation_type", observation_type)
-        planner_mode = planning_cfg.get("mode", "proactive")
         with_reflection = planning_cfg.get("with_reflection", False)
         search_engine = ctx_cfg.get("search_engine", None)
         if search_engine in ("", "None"):
@@ -188,9 +173,6 @@ class ZooAgent:
             height=screen_height,
             grounding_model_type=grounding_cfg.get("type", "single"),
             code_agent_engine_params=engine_params_for_coding,
-            enable_click_validation=enable_click_validation,
-            click_validation_engine_params=click_validation_engine_params,
-            click_validation_max_retries=click_cfg.get("max_retries", 3),
         )
 
         # Build inner Agent -------------------------------------------------
@@ -198,7 +180,6 @@ class ZooAgent:
             engine_params=engine_params,
             grounding_agent=self.grounding_agent,
             platform="windows",
-            planning_mode=planner_mode,
             with_reflection=with_reflection,
             action_space="pyautogui",
             observation_type=obs_type,

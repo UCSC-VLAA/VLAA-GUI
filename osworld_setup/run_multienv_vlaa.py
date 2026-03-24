@@ -484,7 +484,6 @@ def _apply_toml_config(args: argparse.Namespace, config_path: str) -> None:
     )
 
     # Planning
-    args.planner_mode = _get_toml_value(toml_cfg, ["planning", "mode"], "proactive")
     args.planner_hierarchical_depth = _get_toml_value(
         toml_cfg, ["planning", "hierarchical_depth"], 1
     )
@@ -548,32 +547,6 @@ def _apply_toml_config(args: argparse.Namespace, config_path: str) -> None:
     # TTS
     args.action_tts_num = _get_toml_value(toml_cfg, ["tts", "action_tts_num"], 1)
     args.use_verifier = _get_toml_value(toml_cfg, ["tts", "use_verifier"], False)
-
-    # Click Validation Config
-    args.enable_click_validation = _get_toml_value(
-        toml_cfg, ["click_validation", "enabled"], False
-    )
-    args.click_validation_max_retries = _get_toml_value(
-        toml_cfg, ["click_validation", "max_retries"], 3
-    )
-    args.click_validation_provider = _get_toml_value(
-        toml_cfg, ["click_validation", "provider"], None
-    )
-    args.click_validation_model = _get_toml_value(
-        toml_cfg, ["click_validation", "model"], None
-    )
-    args.click_validation_url = _get_toml_value(
-        toml_cfg, ["click_validation", "url"], None
-    )
-    args.click_validation_api_key = _get_toml_value(
-        toml_cfg, ["click_validation", "api_key"], None
-    )
-    args.click_validation_temperature = _get_toml_value(
-        toml_cfg, ["click_validation", "temperature"], None
-    )
-    args.click_validation_top_p = _get_toml_value(
-        toml_cfg, ["click_validation", "top_p"], None
-    )
 
 
 def _build_engine_params(args: argparse.Namespace) -> tuple:
@@ -805,17 +778,6 @@ def run_env_tasks(
 
             coding_agent_flag = a.action_space == "pyautogui_coding"
 
-            click_validation_engine_params = None
-            if a.enable_click_validation and a.click_validation_provider:
-                click_validation_engine_params = {
-                    "engine_type": a.click_validation_provider,
-                    "model": a.click_validation_model,
-                    "base_url": a.click_validation_url or "",
-                    "api_key": a.click_validation_api_key or "",
-                    "temperature": getattr(a, "click_validation_temperature", None),
-                    "top_p": getattr(a, "click_validation_top_p", None),
-                }
-
             grounding_agent = OSWorldACI(
                 env=env,
                 platform="linux",
@@ -828,9 +790,6 @@ def run_env_tasks(
                 grounding_model_type=a.grounding_model_type,
                 code_agent_engine_params=rc.engine_params_for_coding,
                 code_agent_budget=20,
-                enable_click_validation=a.enable_click_validation,
-                click_validation_engine_params=click_validation_engine_params,
-                click_validation_max_retries=a.click_validation_max_retries,
             )
             agent = Agent(
                 rc.engine_params,
@@ -838,7 +797,6 @@ def run_env_tasks(
                 platform="linux",
                 action_space="pyautogui",
                 observation_type=a.observation_type,
-                planning_mode=a.planner_mode,
                 with_reflection=a.with_reflection,
                 search_engine=a.search_engine,
                 memory_root_path="./agent_memory",

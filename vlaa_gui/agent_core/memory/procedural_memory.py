@@ -410,52 +410,6 @@ class PROCEDURAL_MEMORY:
 
         return procedural_memory.strip()
 
-    @staticmethod
-    def construct_manager_sys_prompt(observation_type: str) -> str:
-        """
-        Returns the combined manager prompt based on the observation type.
-        """
-        manager_memory = textwrap.dedent(
-            """\
-        You are an expert planning agent for solving GUI navigation tasks. You need to generate a plan for solving the following task: TASK_DESCRIPTION.
-        
-        You are provided with:
-        """
-        )
-        if observation_type == "screenshot":
-            analysis_section = "1. The state of the computer screen through a desktop screenshot and other related information"
-        elif observation_type == "a11y_tree":
-            analysis_section = "1. The state of the application as an accessibility tree from the AT-SPI library, including roles, names, states, and hierarchical relationships between UI elements."
-        elif observation_type == "mixed":
-            analysis_section = "1. The current state of the application via:\n   - A desktop screenshot and related contextual information\n   - An accessibility (a11y) tree from the AT-SPI library, including roles, names, states, and hierarchical relationships between UI elements."
-        else:
-            raise ValueError(f"Unsupported observation_type: {observation_type}")
-
-        manager_memory += analysis_section + textwrap.dedent(
-            """\
-        2. (If available) A list of successfully completed subtasks
-        3. (If available) A list of future remaining subtasks
-
-        Your responsibilities:
-        1. Generate a new plan or revise the pre-existing plan to complete the task
-        2. Ensure the plan is concise and contains only necessary steps
-        3. Carefully observe and understand the current state of the computer before generating your plan
-        4. Avoid including steps in your plan that the task does not ask for
-
-        Below are important considerations when generating your plan:
-        1. Provide the plan in a step-by-step format with detailed descriptions for each subtask.
-        2. Do not repeat subtasks that have already been successfully completed. Only plan for the remainder of the main task.
-        3. Do not include separate verification steps in your planning. Instead, each step may include a brief expected visible outcome (1 short phrase) to guide the worker's verification.
-        4. Do not include optional steps in your planning. Your plan must be as concise as possible.
-        5. Do not include unnecessary steps in your planning. If you are unsure if a step is necessary, do not include it in your plan.
-        6. When revising an existing plan:
-        - If you feel the trajectory and future subtasks seem correct based on the current state of the desktop, you may re-use future subtasks.
-        - If you feel some future subtasks are not detailed enough, use your observations from the desktop screenshot to update these subtasks to be more detailed.
-        - If you feel some future subtasks are incorrect or unnecessary, feel free to modify or even remove them.
-        """
-        )
-
-        return manager_memory.strip()
 
     # USED IN OSWORLD EXPERIMENTS
     RAG_AGENT_OSWORLD = """
@@ -618,73 +572,6 @@ class PROCEDURAL_MEMORY:
         """
     )
 
-    # Prompt for click validation agent
-    CLICK_VALIDATOR_PROMPT = textwrap.dedent(
-        """\
-    You are a click validation expert for GUI automation. Your task is to verify whether a grounding result (a proposed click point) correctly targets the intended UI element.
-
-    What is provided:
-    1) A screenshot with a RED CIRCLE + CROSSHAIR marking the proposed click location
-    2) A text description of the intended click target element
-
-    Criteria to check the grounding result (be strict and evidence-based):
-    - Target identification: Locate the intended element using the description (label text, icon, shape, position, grouping).
-    - Hit accuracy: The click is VALID only if the marker is clearly inside the target's clickable area, or on/near its edge where a real click would still trigger it.
-    - Miss / wrong element: The click is INVALID if the marker lands on a different element, on empty/background space, or clearly outside the target's clickable bounds.
-    - Ambiguity: If multiple similar candidates exist and you cannot uniquely match the description to the clicked one, mark INVALID and explain the ambiguity.
-    - Interaction state: If the target appears disabled, covered, or otherwise not clickable at this moment, mark INVALID and explain why.
-    - Correction guidance: If INVALID, describe precisely what went wrong AND where the correct click should be (so a re-grounding model can fix it).
-    - Error clarity: If INVALID, explicitly state what the marker is on (the wrong element / background) when you can identify it.
-
-    Response structure:
-    - Return ONLY a JSON object (no markdown/code fences).
-    - The JSON must have exactly two top-level keys: "results" and "suggestion" (in that order).
-    - "results" must be a boolean: true if the click is valid, false otherwise.
-    - Put ALL reasoning, diagnosis, and structured checks inside "suggestion" so the re-grounding model knows exactly what the error is and how to correct it.
-    - If "results" is true, set "error_type" to "none" and "recommended_click" to "".
-
-    Answer format:
-    {
-      "results": true/false,
-      "suggestion": {
-        "summary": "<one sentence: valid/invalid + main reason>",
-        "marker_landed_on": "<what element is under the marker (or empty/background) if identifiable>",
-        "target_identification": "<how you located the intended element>",
-        "marker_vs_target": "<inside/edge/outside + relative position>",
-        "recommended_click": "<exactly where to click instead (center/edge, relative position, optional approximate coords)>",
-      }
-    }
-    """
-    )
-
-    def construct_click_validator_prompt(element_description: str) -> str:
-        return textwrap.dedent(
-            f"""\
-        The RED CIRCLE with CROSSHAIR marks the location that will be clicked.
-
-        Intended click target: {element_description}
-
-        Please verify if the marked click location correctly targets this element.
-        Respond with ONLY a JSON object following the system "results" + "suggestion" schema (no extra text).
-        """
-        )
-
-    def construct_click_corrector_prompt(
-        validation_result: dict,
-        element_description: str,
-    ) -> str:
-        return textwrap.dedent(
-            f"""\
-        The previous click location (marked with RED CIRCLE) was INCORRECT.
-        Validator diagnosis (what went wrong + how to fix it): {validation_result["suggestion"]}
-
-        Please find the correct coordinates for: {element_description}
-
-        Use the validator diagnosis to avoid repeating the same mistake. The red circle shows where we incorrectly tried to click. Find the ACTUAL location of the intended target element.
-        Output only the x,y coordinates of the correct click point. Schema:
-        {{<int>, <int>}}
-        """
-        )
 
     TASK_SUMMARIZATION_PROMPT = """
     You are a summarization agent designed to analyze a trajectory of desktop task execution.

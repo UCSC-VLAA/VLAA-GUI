@@ -43,7 +43,7 @@ class Worker(BaseModule):
         platform: str = platform.system().lower(),
         enable_reflection: bool = True,
         observation_type: str = "screenshot",
-        planning_type: str = "proactive",
+        planning_type: str = "iterative",
         search_engine: Optional[str] = None,
         memory_type: str = "null",
         use_task_experience: bool = False,
@@ -174,7 +174,6 @@ class Worker(BaseModule):
         self.screenshot_inputs = []
         self.max_trajector_length = 8
         self.rag_flag = False
-        self._last_reported_click_validation_history_id = None
         self.gate_criteria_str = ""  # populated by gate agent at step 1
 
     def flush_messages(self):
@@ -185,82 +184,6 @@ class Worker(BaseModule):
         # reflector msgs are all [(user text, user image)], so 1 per round
         if len(self.reflection_agent.messages) > self.max_trajector_length + 1:
             self.reflection_agent.remove_message_at(1)
-
-    def _format_click_reground_failure_for_reflection(self, history: Dict) -> str:
-        """Format a concise note about click re-grounding failure for the reflection agent."""
-        if not isinstance(history, dict):
-            return ""
-
-        attempts = history.get("attempts")
-        if not isinstance(attempts, list) or not attempts:
-            return ""
-
-        # Only emit a note when the verifier never accepted any attempt.
-        if history.get("final_valid") is True:
-            return ""
-
-        mode = str(history.get("mode") or "full_image")
-        last_attempt = attempts[-1] if attempts else {}
-        final_coords = last_attempt.get("coords")
-        final_model_coords = last_attempt.get("model_coords")
-        last_reason = str(last_attempt.get("reason") or "").strip()
-        last_suggestion = str(last_attempt.get("suggestion") or "").strip()
-
-        def _trim(text: str, limit: int = 600) -> str:
-            if len(text) <= limit:
-                return text
-            return text[: limit - 1] + "…"
-
-        # Provide a compact per-attempt reason trace (usually <= 4 items).
-        attempt_reasons = []
-        for attempt in attempts:
-            reason = attempt.get("reason")
-            if reason:
-                attempt_reasons.append(_trim(str(reason).strip(), limit=160))
-
-        lines = [
-            "EXECUTION NOTE (click re-grounding): verifier rejected all retries; the click may have missed.",
-            f"- mode: {mode}",
-            f"- validation_attempts: {len(attempts)} (initial + retries)",
-            f"- final_coords_used: {final_coords}",
-        ]
-        if final_model_coords is not None:
-            lines.append(f"- final_model_coords: {final_model_coords}")
-        if last_reason:
-            lines.append(f"- last_verifier_reason: {_trim(last_reason, limit=240)}")
-        if attempt_reasons:
-            lines.append(f"- verifier_reasons_trace: {' | '.join(attempt_reasons)}")
-        if last_suggestion:
-            lines.append(
-                f"- last_verifier_suggestion: {_trim(last_suggestion, limit=600)}"
-            )
-
-        return "\n".join(lines)
-
-    def _maybe_get_click_reground_failure_note(self) -> Optional[str]:
-        """Return a one-time reflection note for the most recent click validation failure."""
-        getter = getattr(
-            self.grounding_agent, "get_last_click_validation_history", None
-        )
-        if getter is None:
-            return None
-
-        try:
-            history = getter()
-        except Exception:
-            return None
-
-        if not isinstance(history, dict) or history.get("final_valid") is True:
-            return None
-
-        # Avoid repeating the exact same failure note if no new click occurred.
-        history_id = id(history)
-        if history_id == self._last_reported_click_validation_history_id:
-            return None
-        self._last_reported_click_validation_history_id = history_id
-
-        note = self._format_click_reground_failure_for_reflection(history)
-        return note or None
 
     def _format_code_agent_result_for_reflection(self, result: Dict) -> str:
         """Format a concise code-agent execution note for reflection."""
@@ -376,9 +299,6 @@ class Worker(BaseModule):
             # Load the latest action
             else:
                 reflection_input = self.worker_history[-1]
-                reground_failure_note = self._maybe_get_click_reground_failure_note()
-                if reground_failure_note:
-                    reflection_input += "\n\n" + reground_failure_note
                 code_result_note = self._format_code_agent_result_for_reflection(
                     getattr(self.grounding_agent, "last_code_agent_result", None)
                 )

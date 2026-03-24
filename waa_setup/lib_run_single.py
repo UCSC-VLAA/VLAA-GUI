@@ -218,31 +218,6 @@ def run_single_example(
         ) as f:
             f.write(f"{result}\n")
 
-        # Token tracking
-        try:
-            summary = token_tracker.get_summary()
-            if shared_token_summaries is not None:
-                shared_token_summaries.append(
-                    {
-                        "task_id": summary.task_id,
-                        "task_instruction": summary.task_instruction,
-                        "total_output_tokens": summary.total_output_tokens,
-                        "agent_breakdown": {
-                            agent_type: {
-                                "output_tokens": stats.get("output_tokens", 0),
-                                "total_tokens": stats.get("total_tokens", 0),
-                                "calls": stats.get("calls", 0),
-                            }
-                            for agent_type, stats in summary.agent_breakdown.items()
-                        },
-                    }
-                )
-            else:
-                csv_path, json_path = token_tracker.write_both()
-                logger.info("Token usage saved to: %s and %s", csv_path, json_path)
-        except Exception as e:
-            logger.error("Failed to record token usage summary: %s", e)
-
     finally:
         logger.removeHandler(runtime_file_handler)
         runtime_file_handler.close()

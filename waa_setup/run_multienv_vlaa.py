@@ -936,19 +936,7 @@ def config() -> argparse.Namespace:
     parser.add_argument(
         "--result_dir",
         type=str,
-        # default="traj-full/results-wo-done-wo-click-w-geminisearcher-wo-planner-wo-memory-wo-gate-w-feasibility-w-loop-detect-100-exp",
-        # default="traj/results-w-done-wo-click-w-llmsearcher-wo-planner-wo-memory-w-gate-wo-feasibility-wo-loop-detect-100-exp",
-        # default="traj-full/results-w-done-wo-click-w-geminisearcher-wo-planner-wo-memory-w-gate-w-feasibility-w-loop-detect-100-exp"
-        # default="traj-full/results-baseline-100"
-        # default="traj-full/results-w-new-done-wo-click-w-geminisearcher-wo-planner-w-recon-wo-memory-w-gate-w-new-feasibility-wo-loop-detect-100"
-        # default="traj-full/wo-search"
-        # default="traj-full/results-w-done-wo-click-w-geminisearcher-wo-planner-wo-memory-w-gate-wo-feasibility-wo-loop-detect-100-exp",
-        # default="traj-full/results-w-done-wo-click-w-geminisearcher-wo-planner-wo-memory-w-gate-w-feasibility-w-loop-detect-100-exp",
-        # default="traj/results-w-done-wo-click-w-llmsearcher-wo-planner-wo-memory-w-gate-wo-feasibility-wo-loop-detect-100-exp",
-        default="traj-gemini/none",
-        # default="traj-gemini/wo-search"
-        # default="traj-gemini/full"
-        # default="traj-gemini/wo-done"
+        default="results",
     )
     parser.add_argument(
         "--num_envs",
@@ -959,13 +947,12 @@ def config() -> argparse.Namespace:
     parser.add_argument(
         "--config-path",
         type=str,
-        default="config/wo-done-gemini.toml",
+        default="config/config.toml",
         help="Path to the agent model configuration TOML file.",
     )
     parser.add_argument(
         "--test_all_meta_path",
         type=str,
-        # default="evaluation_examples/test_subset.json",
         default="evaluation_examples/test_nogdrive.json",
     )
     parser.add_argument("--max_steps", type=int, default=100)

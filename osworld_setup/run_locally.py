@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import sys
-import tomllib
 
 from vlaa_gui.agent_core.agents.agent import Agent
 from vlaa_gui.agent_core.agents.grounding import OSWorldACI
@@ -16,6 +15,7 @@ from tqdm import tqdm
 
 from desktop_env.desktop_env import DesktopEnv
 import osworld_setup.lib_run_single_vlaa as lib_run_single_vlaa
+from osworld_setup.cli_args import add_and_finalize_args
 
 
 #  Logger Configs {{{ #
@@ -60,301 +60,11 @@ logger.addHandler(sdebug_handler)
 logger = logging.getLogger("desktopenv.experiment")
 
 
-def get_config_value(config, key, default=None, toml_section=None, toml_key=None):
-    """Helper function to get config value with precedence: args > toml > default"""
-    if toml_section and toml_key:
-        default = config[toml_section][toml_key]
-    return default
-
-
 def config() -> argparse.Namespace:
-    # Load configuration from TOML file if it exists
-    config = {}
-    try:
-        with open("config.toml", "rb") as f:
-            config = tomllib.load(f)
-    except FileNotFoundError:
-        raise Exception("INFO: config.toml not found, please create one.")
-
     parser = argparse.ArgumentParser(
-        description="Run end-to-end evaluation on the benchmark"
+        description="Run end-to-end evaluation on OSWorld with the VLAA agent"
     )
-
-    parser.add_argument("--path_to_vm", type=str, default="path_to_vmx_file")
-    parser.add_argument(
-        "--headless", action="store_true", help="Run in headless machine"
-    )
-    parser.add_argument("--screen_width", type=int, default=1920)
-    parser.add_argument("--screen_height", type=int, default=1080)
-    parser.add_argument("--sleep_after_execution", type=float, default=0.0)
-    parser.add_argument("--max_steps", type=int, default=15)
-
-    # agent config
-    parser.add_argument("--max_trajectory_length", type=int, default=3)
-    parser.add_argument(
-        "--test_config_base_dir", type=str, default="evaluation_examples"
-    )
-
-    # example config
-    parser.add_argument("--domain", type=str, default="all")
-    parser.add_argument(
-        "--test_all_meta_path", type=str, default="evaluation_examples/test_subset.json"
-    )
-
-    # logging related
-    parser.add_argument("--result_dir", type=str, default="./results")
-
-    # NEW! =======================================================================
-
-    # Model Configurations
-
-    parser.add_argument(
-        "--model_provider",
-        type=str,
-        default=get_config_value(config, "provider", "openai", "model", "provider"),
-        help="Specify the provider to use (e.g., openai, anthropic, etc.)",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default=get_config_value(config, "model", "gpt-4.1", "model", "name"),
-        help="Specify the model to use (e.g., gpt-4o)",
-    )
-    parser.add_argument(
-        "--model_url",
-        type=str,
-        default=get_config_value(config, "model_url", "", "model", "url"),
-        help="The URL of the main generation model API.",
-    )
-    parser.add_argument(
-        "--model_api_key",
-        type=str,
-        default=get_config_value(config, "model_api_key", "", "model", "api_key"),
-        help="The API key of the main generation model.",
-    )
-    parser.add_argument("--temperature", type=float, default=1.0)
-    parser.add_argument("--max_tokens", type=int, default=1500)
-
-    # Grounding model config
-    parser.add_argument(
-        "--grounding_model_provider",
-        type=str,
-        default=get_config_value(
-            config, "grounding_model_provider", "openai", "grounding", "provider"
-        ),
-        help="Provider for the API-based grounding model.",
-    )
-    parser.add_argument(
-        "--grounding_model",
-        type=str,
-        default=get_config_value(
-            config,
-            "grounding_model",
-            "doubao-1-5-ui-tars-250428",
-            "grounding",
-            "grounding_model",
-        ),
-        help="API-based grounding model name.",
-    )
-    parser.add_argument(
-        "--grounding_model_url",
-        type=str,
-        default=get_config_value(config, "grounding_model_url", "", "grounding", "url"),
-        help="URL for the API-based grounding model.",
-    )
-    parser.add_argument(
-        "--grounding_model_api_key",
-        type=str,
-        default=get_config_value(
-            config, "grounding_model_api_key", "", "grounding", "api_key"
-        ),
-        help="API key for the API-based grounding model.",
-    )
-    parser.add_argument(
-        "--grounding_model_resize_width",
-        type=int,
-        default=get_config_value(
-            config,
-            "grounding_model_resize_width",
-            None,
-            "grounding",
-            "resize_width",
-        ),
-        help="Width of screenshot for grounding model.",
-    )
-    parser.add_argument(
-        "--grounding_model_resize_height",
-        type=int,
-        default=get_config_value(
-            config,
-            "grounding_model_resize_height",
-            None,
-            "grounding",
-            "resize_height",
-        ),
-        help="Height of screenshot for grounding model.",
-    )
-
-    # Self-hosted endpoint config
-    parser.add_argument(
-        "--endpoint_provider",
-        type=str,
-        default=get_config_value(
-            config, "endpoint_provider", "", "grounding_endpoint", "provider"
-        ),
-        help="Provider for the self-hosted grounding model endpoint.",
-    )
-    parser.add_argument(
-        "--endpoint_url",
-        type=str,
-        default=get_config_value(
-            config, "endpoint_url", "", "grounding_endpoint", "url"
-        ),
-        help="URL for the self-hosted grounding model endpoint.",
-    )
-    parser.add_argument(
-        "--endpoint_api_key",
-        type=str,
-        default=get_config_value(
-            config, "endpoint_api_key", "", "grounding_endpoint", "api_key"
-        ),
-        help="API key for the self-hosted grounding model.",
-    )
-
-    # Embedding engine
-    parser.add_argument(
-        "--embedding_engine_type",
-        type=str,
-        default=get_config_value(
-            config, "embedding_engine_type", "openai", "embedding", "engine_type"
-        ),
-        help="Specify the embedding engine type.",
-    )
-
-    # Perception
-    parser.add_argument(
-        "--observation_type",
-        choices=["screenshot", "a11y_tree", "screenshot_a11y_tree", "som"],
-        default=get_config_value(
-            config, "observation_type", "screenshot", "perception", "observation_type"
-        ),
-        help="Observation type.",
-    )
-
-    # Grounding model type
-    parser.add_argument(
-        "--grounding_model_type",
-        type=str,
-        default=get_config_value(
-            config, "grounding_model_type", "single", "grounding", "type"
-        ),
-        help="Specify the grounding model type (supports single, multi).",
-    )
-
-    # Planning
-    parser.add_argument(
-        "--planner_hierarchical_depth",
-        type=int,
-        default=get_config_value(
-            config, "planner_hierarchical_depth", 1, "planning", "hierarchical_depth"
-        ),
-        help="Hierarchical depth of the planner.",
-    )
-    parser.add_argument(
-        "--with-reflection",
-        action="store_true",
-        default=get_config_value(
-            config, "with_reflection", False, "planning", "with_reflection"
-        ),
-        help="Enable reflection in the planner.",
-    )
-
-    # Context management
-    parser.add_argument(
-        "--search_engine",
-        type=str,
-        default=get_config_value(
-            config, "search_engine", None, "context_management", "search_engine"
-        ),
-        help="The search engine to use for web queries.",
-    )
-    parser.add_argument("--kb_name", default="kb", type=str)
-    parser.add_argument(
-        "--memory_type",
-        type=str,
-        default=get_config_value(
-            config, "memory_type", "mixed", "context_management", "memory_type"
-        ),
-        help="The memory type.",
-    )
-    parser.add_argument(
-        "--lexical_weight",
-        type=float,
-        default=get_config_value(
-            config, "lexical_weight", 0.0, "context_management", "lexical_weight"
-        ),
-        help="Lexical weight for hybrid retrieval (0.0 = pure semantic, 1.0 = pure lexical).",
-    )
-    parser.add_argument(
-        "--memory_representation",
-        type=str,
-        default=get_config_value(
-            config,
-            "memory_representation",
-            "vector",
-            "context_management",
-            "memory_representation",
-        ),
-        help="The memory representation.",
-    )
-    parser.add_argument(
-        "--knowledge_storage",
-        type=str,
-        default=get_config_value(
-            config, "knowledge_storage", "db", "context_management", "knowledge_storage"
-        ),
-        help="The knowledge storage.",
-    )
-
-    # Action space
-    parser.add_argument(
-        "--action_space",
-        type=str,
-        default=get_config_value(
-            config, "action_space", "pyautogui", "action_space", "engine"
-        ),
-        help="The action space.",
-    )
-
-    # TTS
-    parser.add_argument(
-        "--action_tts_num",
-        type=int,
-        default=get_config_value(config, "action_tts", 1, "tts", "action_tts"),
-        help="Number of TTS actions to perform per step.",
-    )
-
-    args = parser.parse_args()
-
-    # If a config file was found, override args with any command-line values that were explicitly set
-    # This ensures command-line arguments have the highest priority
-    if config:
-        # Create a temporary parser to check which args were provided on the command line
-        # This avoids overriding TOML values with argparse defaults
-        cmd_line_parser = argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
-        for action in parser._actions:
-            if action.dest not in ("help", "version"):
-                cmd_line_parser.add_argument(
-                    action.option_strings[0] if action.option_strings else action.dest
-                )
-
-        cmd_line_args, _ = cmd_line_parser.parse_known_args()
-
-        # Update args with command-line values only
-        for key, value in vars(cmd_line_args).items():
-            setattr(args, key, value)
-
-    return args
+    return add_and_finalize_args(parser, include_num_envs=False)
 
 
 def test(args: argparse.Namespace, test_all_meta: dict) -> None:
@@ -374,14 +84,11 @@ def test(args: argparse.Namespace, test_all_meta: dict) -> None:
         "max_steps": args.max_steps,
         "max_trajectory_length": args.max_trajectory_length,
         "model": args.model,
-        "temperature": args.temperature,
+        "temperature": args.model_temperature,
         "max_tokens": args.max_tokens,
         "result_dir": args.result_dir,
     }
 
-    if args.search_engine == "None" or args.search_engine == "":
-        args.search_engine = None
-    # NEW!
     engine_params = {
         "engine_type": args.model_provider,
         "model": args.model,
@@ -396,23 +103,22 @@ def test(args: argparse.Namespace, test_all_meta: dict) -> None:
             "api_key": args.endpoint_api_key,
         }
     else:
-        grounding_height = args.grounding_model_resize_height
-        # If not provided, use the aspect ratio of the screen to compute the height
+        grounding_width = args.grounding_width or args.screen_width
+        grounding_height = args.grounding_height
         if grounding_height is None:
             grounding_height = (
                 args.screen_height
-                * args.grounding_model_resize_width
+                * grounding_width
                 / args.screen_width
             )
 
         engine_params_for_grounding = {
             "engine_type": args.grounding_model_provider,
             "model": args.grounding_model,
-            "grounding_width": args.grounding_model_resize_width,
+            "grounding_width": grounding_width,
             "grounding_height": grounding_height,
         }
 
-    # NEW!
     grounding_agent = OSWorldACI(
         platform="linux",
         engine_params_for_generation=engine_params,
@@ -422,7 +128,6 @@ def test(args: argparse.Namespace, test_all_meta: dict) -> None:
         grounding_model_type=args.grounding_model_type,
     )
 
-    # NEW!
     agent = Agent(
         engine_params,
         grounding_agent,
@@ -443,9 +148,11 @@ def test(args: argparse.Namespace, test_all_meta: dict) -> None:
 
     env = DesktopEnv(
         path_to_vm=args.path_to_vm,
+        provider_name=args.provider_name,
         action_space=agent.action_space,
         screen_size=(args.screen_width, args.screen_height),
         headless=args.headless,
+        client_password=args.client_password,
         require_a11y_tree=args.observation_type
         in ["a11y_tree", "screenshot_a11y_tree", "som"],
     )
@@ -474,7 +181,7 @@ def test(args: argparse.Namespace, test_all_meta: dict) -> None:
                 args.result_dir,
                 args.action_space,
                 args.observation_type,
-                args.model,
+                args.model_dir_name,
                 domain,
                 example_id,
             )
@@ -581,16 +288,14 @@ def get_result(action_space, use_model, observation_type, result_dir, total_file
 
 
 if __name__ == "__main__":
-    ####### The complete version of the list of examples #######
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     args = config()
-    # save args to json in result_dir/action_space/observation_type/model/args.json
     path_to_args = os.path.join(
         args.result_dir,
         args.action_space,
         args.observation_type,
-        args.model,
+        args.model_dir_name,
         "args.json",
     )
     os.makedirs(os.path.dirname(path_to_args), exist_ok=True)
@@ -605,7 +310,7 @@ if __name__ == "__main__":
 
     test_file_list = get_unfinished(
         args.action_space,
-        args.model,
+        args.model_dir_name,
         args.observation_type,
         args.result_dir,
         test_all_meta,
@@ -617,7 +322,7 @@ if __name__ == "__main__":
 
     get_result(
         args.action_space,
-        args.model,
+        args.model_dir_name,
         args.observation_type,
         args.result_dir,
         test_all_meta,

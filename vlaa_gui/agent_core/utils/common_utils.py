@@ -5,8 +5,6 @@ import time
 import tiktoken
 import numpy as np
 from typing import Tuple, List, Dict, Optional
-import xml.etree.ElementTree as ET
-import tomllib
 from openai import RateLimitError
 from pydantic import BaseModel, ValidationError
 from vlaa_gui.agent_core.memory.procedural_memory import PROCEDURAL_MEMORY
@@ -44,7 +42,6 @@ def track_tokens(
     agent_type: str,
     model: str,
     messages: List,
-    pricing_config_path: Optional[str] = None,
     subtask: str = "",
     metadata: Optional[Dict] = None,
     engine_instance=None,
@@ -55,7 +52,6 @@ def track_tokens(
         agent_type: Type of agent (e.g., "planner", "executor", "verifier")
         model: Model name
         messages: Message list to calculate tokens from
-        pricing_config_path: Path to pricing config
         subtask: Optional subtask description
         metadata: Optional additional metadata
         engine_instance: Optional engine instance to check for API-reported usage
@@ -78,7 +74,6 @@ def track_tokens(
             model=model,
             input_tokens=usage.get("prompt_tokens", 0),
             output_tokens=usage.get("completion_tokens", 0),
-            cost=0,  # Cost will be calculated by tracker if needed
             subtask=subtask,
             metadata=metadata,
         )
@@ -88,7 +83,6 @@ def track_tokens(
             agent_type=agent_type,
             model=model,
             messages=messages,
-            pricing_config_path=pricing_config_path,
             subtask=subtask,
             metadata=metadata,
         )
@@ -181,12 +175,10 @@ def call_llm_safe(
             try:
                 model = getattr(agent.engine, "model", "unknown")
                 messages = kwargs.get("messages", agent.messages)
-                pricing_config_path = kwargs.get("pricing_config_path")
                 track_tokens(
                     agent_type=agent_type,
                     model=model,
                     messages=messages,
-                    pricing_config_path=pricing_config_path,
                     subtask=subtask,
                     engine_instance=agent.engine,
                 )
@@ -255,12 +247,10 @@ def call_llm_safe_with_thinking(
             try:
                 model = getattr(agent.engine, "model", "unknown")
                 messages = kwargs.get("messages", agent.messages)
-                pricing_config_path = kwargs.get("pricing_config_path")
                 track_tokens(
                     agent_type=agent_type,
                     model=model,
                     messages=messages,
-                    pricing_config_path=pricing_config_path,
                     subtask=subtask,
                     engine_instance=agent.engine,
                 )
@@ -491,114 +481,6 @@ def calculate_tokens(messages, num_image_token=NUM_IMAGE_TOKEN) -> Tuple[int, in
     output_tokens = get_input_token_length(output_text)
 
     return (input_text_tokens + input_image_tokens), output_tokens
-
-
-def load_pricing_config(config_path=None) -> Dict:
-    """Load pricing configuration from TOML file."""
-    try:
-        with open(config_path, "rb") as f:
-            return tomllib.load(f)
-    except FileNotFoundError:
-        print(
-            f"Warning: Pricing config file not found at {config_path}, using default values"
-        )
-        return {
-            "models": {
-                "gpt-4": {
-                    "input_price": 0.03,
-                    "output_price": 0.06,
-                    "num_image_token": 1105,
-                },
-                "gpt-4-turbo": {
-                    "input_price": 0.002,
-                    "output_price": 0.004,
-                    "num_image_token": 1105,
-                },
-            },
-            "default": {
-                "input_price": 0.03,
-                "output_price": 0.06,
-                "num_image_token": 1105,
-            },
-        }
-    except Exception as e:
-        print(f"Error loading pricing config: {e}, using default values")
-        return {
-            "models": {
-                "gpt-4": {
-                    "input_price": 0.03,
-                    "output_price": 0.06,
-                    "num_image_token": 1105,
-                },
-                "gpt-4-turbo": {
-                    "input_price": 0.002,
-                    "output_price": 0.004,
-                    "num_image_token": 1105,
-                },
-            },
-            "default": {
-                "input_price": 0.03,
-                "output_price": 0.06,
-                "num_image_token": 1105,
-            },
-        }
-
-
-def normalize_model_name(model_name: str) -> str:
-    """
-    Normalize model name to handle different naming conventions.
-    Specifically handles:
-    - Gemini model names that may use dots vs hyphens
-    - Claude model names that use @ vs hyphens for date suffixes
-    """
-    # Replace @ with hyphens for Claude models (e.g., claude-sonnet-4-5@20250929)
-    if "@" in model_name:
-        model_name = model_name.replace("@", "-")
-    # Replace dots with hyphens for Gemini models
-    if model_name.startswith("gemini-"):
-        return model_name.replace(".", "-")
-    return model_name
-
-
-def calculate_price(
-    messages, model="gpt-4", num_image_token=None, config_path=None
-) -> float:
-    """Calculate price based on token usage and model pricing from config."""
-
-    # Load pricing configuration
-    pricing_config = load_pricing_config(config_path=config_path)
-
-    # Normalize model name for matching
-    normalized_model = normalize_model_name(model)
-
-    # Get model-specific pricing or use default
-    if normalized_model in pricing_config.get("models", {}):
-        model_config = pricing_config["models"][normalized_model]
-    else:
-        print(
-            f"Warning: Model '{model}' (normalized: '{normalized_model}') not found in pricing config, using default values"
-        )
-        model_config = pricing_config.get(
-            "default",
-            {"input_price": 0.03, "output_price": 0.06, "num_image_token": 1105},
-        )
-
-    # Use num_image_token from parameter, then from config, then default
-    if num_image_token is None:
-        num_image_token = model_config.get("num_image_token", NUM_IMAGE_TOKEN)
-
-    # Calculate tokens
-    input_tokens, output_tokens = calculate_tokens(
-        messages, num_image_token=num_image_token
-    )
-
-    # Get prices (convert from per-1K tokens to per-token)
-    input_price = model_config.get("input_price", 0.03) / 1000
-    output_price = model_config.get("output_price", 0.06) / 1000
-
-    # Calculate total price
-    total_price = (input_tokens * input_price) + (output_tokens * output_price)
-    return total_price
 
 
 # Code based on https://github.com/xlang-ai/OSWorld/blob/main/mm_agents/agent.py

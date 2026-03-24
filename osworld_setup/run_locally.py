@@ -134,12 +134,6 @@ def config() -> argparse.Namespace:
     )
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--max_tokens", type=int, default=1500)
-    parser.add_argument(
-        "--pricing_config_path",
-        type=str,
-        default="config/pricing.toml",
-        help="Path to the pricing configuration file.",
-    )
 
     # Grounding model config
     parser.add_argument(
@@ -504,7 +498,6 @@ def test(args: argparse.Namespace, test_all_meta: dict) -> None:
         engine_params,
         grounding_agent,
         platform="linux",
-        pricing_config_path=args.pricing_config_path,
         action_space="pyautogui",
         observation_type=args.observation_type,
         planning_mode=args.planner_mode,

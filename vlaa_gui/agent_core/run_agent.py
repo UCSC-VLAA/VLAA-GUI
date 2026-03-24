@@ -445,7 +445,9 @@ def _apply_toml_config(args: argparse.Namespace, config_path: str) -> Dict[str, 
     args.search_engine = _get_toml_value(
         toml_cfg, ["context_management", "search_engine"], None
     )
-    args.kb_name = _get_toml_value(toml_cfg, ["context_management", "kb_name"], "agent_memory")
+    args.kb_name = _get_toml_value(
+        toml_cfg, ["context_management", "kb_name"], "agent_memory"
+    )
     args.memory_type = _get_toml_value(
         toml_cfg, ["context_management", "memory_type"], "mixed"
     )
@@ -809,12 +811,6 @@ def main():
         help="Path to the agent model configuration TOML file.",
     )
     parser.add_argument(
-        "--pricing_config_path",
-        type=str,
-        default="config/pricing.toml",
-        help="Path to the pricing configuration file.",
-    )
-    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug mode with verbose logging.",
@@ -918,7 +914,6 @@ def main():
         engine_params,
         grounding_agent,
         platform=current_platform,
-        pricing_config_path=args.pricing_config_path,
         action_space=args.action_space,
         observation_type=args.observation_type,
         search_engine=args.search_engine,

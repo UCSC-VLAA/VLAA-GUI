@@ -179,6 +179,5 @@ agent_memory/
 # config
 config/*
 !config/template.toml
-!config/pricing.toml
 
 debug/

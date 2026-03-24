@@ -836,7 +836,6 @@ def run_env_tasks(
                 rc.engine_params,
                 grounding_agent,
                 platform="linux",
-                pricing_config_path=a.pricing_config_path,
                 action_space="pyautogui",
                 observation_type=a.observation_type,
                 planning_mode=a.planner_mode,
@@ -1023,12 +1022,6 @@ def config() -> argparse.Namespace:
     # logging
     parser.add_argument(
         "--headless", type=bool, default=True, help="Run in headless mode"
-    )
-    parser.add_argument(
-        "--pricing_config_path",
-        type=str,
-        default="config/pricing.toml",
-        help="Path to the pricing configuration file.",
     )
     parser.add_argument(
         "--debug",

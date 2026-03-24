@@ -26,7 +26,6 @@ class AgentTokenUsage:
     input_tokens: int
     output_tokens: int
     total_tokens: int
-    cost: float
     timestamp: str
     task_id: str = ""
     subtask: str = ""
@@ -48,9 +47,8 @@ class TaskTokenSummary:
     total_input_tokens: int
     total_output_tokens: int
     total_tokens: int
-    total_cost: float
-    agent_breakdown: Dict[str, Dict]  # agent_type -> {tokens, cost, calls}
-    model_breakdown: Dict[str, Dict]  # model -> {tokens, cost, calls}
+    agent_breakdown: Dict[str, Dict]  # agent_type -> {tokens, calls}
+    model_breakdown: Dict[str, Dict]  # model -> {tokens, calls}
 
 
 class TokenTracker:
@@ -64,17 +62,14 @@ class TokenTracker:
         self,
         output_dir: str = "logs",
         task_id: Optional[str] = None,
-        pricing_config_path: Optional[str] = None,
     ):
         """Initialize the TokenTracker.
 
         Args:
             output_dir: Directory to write token usage files
             task_id: Optional task identifier. If None, generated from timestamp
-            pricing_config_path: Path to pricing configuration TOML file
         """
         self.output_dir = output_dir
-        self.pricing_config_path = pricing_config_path
 
         # Generate task_id if not provided
         if task_id is None:
@@ -91,7 +86,6 @@ class TokenTracker:
                 "input_tokens": 0,
                 "output_tokens": 0,
                 "total_tokens": 0,
-                "cost": 0.0,
                 "calls": 0,
             }
         )
@@ -102,7 +96,6 @@ class TokenTracker:
                 "input_tokens": 0,
                 "output_tokens": 0,
                 "total_tokens": 0,
-                "cost": 0.0,
                 "calls": 0,
             }
         )
@@ -124,7 +117,6 @@ class TokenTracker:
         model: str,
         input_tokens: int,
         output_tokens: int,
-        cost: float = 0.0,
         subtask: str = "",
         metadata: Optional[Dict] = None,
     ) -> None:
@@ -135,7 +127,6 @@ class TokenTracker:
             model: Model name used
             input_tokens: Number of input tokens
             output_tokens: Number of output tokens
-            cost: Cost in dollars (if pre-calculated)
             subtask: Optional subtask description
             metadata: Optional additional metadata
         """
@@ -149,7 +140,6 @@ class TokenTracker:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 total_tokens=total_tokens,
-                cost=cost,
                 timestamp=timestamp,
                 task_id=self.task_id,
                 subtask=subtask,
@@ -161,14 +151,12 @@ class TokenTracker:
             self._agent_totals[agent_type]["input_tokens"] += input_tokens
             self._agent_totals[agent_type]["output_tokens"] += output_tokens
             self._agent_totals[agent_type]["total_tokens"] += total_tokens
-            self._agent_totals[agent_type]["cost"] += cost
             self._agent_totals[agent_type]["calls"] += 1
 
             # Update model totals
             self._model_totals[model]["input_tokens"] += input_tokens
             self._model_totals[model]["output_tokens"] += output_tokens
             self._model_totals[model]["total_tokens"] += total_tokens
-            self._model_totals[model]["cost"] += cost
             self._model_totals[model]["calls"] += 1
 
     def record_from_messages(
@@ -176,7 +164,6 @@ class TokenTracker:
         agent_type: str,
         model: str,
         messages: List,
-        pricing_config_path: Optional[str] = None,
         subtask: str = "",
         metadata: Optional[Dict] = None,
     ) -> None:
@@ -186,29 +173,18 @@ class TokenTracker:
             agent_type: Type of agent
             model: Model name
             messages: Message list to calculate tokens from
-            pricing_config_path: Path to pricing config (overrides instance setting)
             subtask: Optional subtask description
             metadata: Optional additional metadata
         """
-        from vlaa_gui.agent_core.utils.common_utils import (
-            calculate_tokens,
-            calculate_price,
-        )
+        from vlaa_gui.agent_core.utils.common_utils import calculate_tokens
 
-        config_path = pricing_config_path or self.pricing_config_path
         input_tokens, output_tokens = calculate_tokens(messages)
-        cost = calculate_price(
-            messages,
-            model=model,
-            config_path=config_path,
-        )
 
         self.record_usage(
             agent_type=agent_type,
             model=model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cost=cost,
             subtask=subtask,
             metadata=metadata,
         )
@@ -221,7 +197,6 @@ class TokenTracker:
         total_input = sum(a["input_tokens"] for a in self._agent_totals.values())
         total_output = sum(a["output_tokens"] for a in self._agent_totals.values())
         total_tokens = sum(a["total_tokens"] for a in self._agent_totals.values())
-        total_cost = sum(a["cost"] for a in self._agent_totals.values())
 
         return TaskTokenSummary(
             task_id=self.task_id,
@@ -231,7 +206,6 @@ class TokenTracker:
             total_input_tokens=total_input,
             total_output_tokens=total_output,
             total_tokens=total_tokens,
-            total_cost=total_cost,
             agent_breakdown=dict(self._agent_totals),
             model_breakdown=dict(self._model_totals),
         )
@@ -261,7 +235,6 @@ class TokenTracker:
                         "input_tokens",
                         "output_tokens",
                         "total_tokens",
-                        "cost",
                         "subtask",
                     ]
                 )
@@ -275,7 +248,6 @@ class TokenTracker:
                             record.input_tokens,
                             record.output_tokens,
                             record.total_tokens,
-                            f"{record.cost:.6f}",
                             record.subtask[:100] if record.subtask else "",
                         ]
                     )
@@ -333,20 +305,19 @@ class TokenTracker:
         logger.info(f"Total Input Tokens:  {summary.total_input_tokens:,}")
         logger.info(f"Total Output Tokens: {summary.total_output_tokens:,}")
         logger.info(f"Total Tokens:        {summary.total_tokens:,}")
-        logger.info(f"Total Cost:          ${summary.total_cost:.4f}")
         logger.info("-" * 60)
         logger.info("Agent Breakdown:")
         for agent_type, stats in summary.agent_breakdown.items():
             logger.info(
                 f"  {agent_type:15s}: {stats['total_tokens']:8,} tokens, "
-                f"${stats['cost']:8.4f}, {stats['calls']} calls"
+                f"{stats['calls']} calls"
             )
         logger.info("-" * 60)
         logger.info("Model Breakdown:")
         for model, stats in summary.model_breakdown.items():
             logger.info(
                 f"  {model:30s}: {stats['total_tokens']:8,} tokens, "
-                f"${stats['cost']:8.4f}, {stats['calls']} calls"
+                f"{stats['calls']} calls"
             )
         logger.info("=" * 60)
 

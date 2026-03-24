@@ -259,17 +259,6 @@ class Agent(UIAgent):
         self.search_query = ""
         self.reset_executor_state()
 
-    def predict_iteratively(
-        self, instruction: str, observation: Dict
-    ) -> Tuple[Dict, List[str]]:
-        # Initialize the three info dictionaries
-        executor_info, actions = self.executor.generate_next_action_iteratively(
-            instruction=instruction, obs=observation
-        )
-        # concatenate the three info dictionaries
-        info = {**{k: v for d in [executor_info or {}] for k, v in d.items()}}
-
-        return info, actions
 
     def predict(self, instruction: str, observation: Dict) -> Tuple[Dict, List[str]]:
         if self.planning_mode == "iterative":
@@ -296,15 +285,6 @@ class Agent(UIAgent):
             if self.requires_replan:
                 logger.info("(RE)PLANNING...")
                 _verifier_feedback = self.verifier_feedback
-                planner_info, self.subtasks = self.planner.get_action_queue(
-                    planning_mode=self.planning_mode,
-                    instruction=instruction,
-                    observation=observation,
-                    failed_subtask=self.failure_subtask,
-                    completed_subtasks_list=self.completed_tasks,
-                    remaining_subtasks_list=self.subtasks,
-                    verifier_feedback=_verifier_feedback,
-                )
                 self.verifier_feedback = None  # clear after use
 
                 self.requires_replan = False
@@ -312,46 +292,6 @@ class Agent(UIAgent):
                     self.search_query = planner_info["search_query"]
                 else:
                     self.search_query = ""
-
-            # use the exectuor to complete the topmost subtask
-            if self.needs_next_subtask:
-                logger.info("GETTING NEXT SUBTASK...")
-
-                # this can be empty if the DAG planner deems that all subtasks are completed
-                if len(self.subtasks) <= 0:
-                    self.requires_replan = True
-                    self.needs_next_subtask = True
-                    self.failure_subtask = None
-                    self.completed_tasks.append(self.current_subtask)
-
-                    # reset executor state
-                    self.reset_executor_state()
-                    self.should_send_action = True
-                    self.subtask_status = "Done"
-                    executor_info = {
-                        "executor_plan": "agent.done()",
-                        "plan_code": "agent.done()",
-                        "reflection": "agent.done()",
-                    }
-                    actions = ["DONE"]
-                    break
-
-                self.current_subtask = self.subtasks.pop(0)
-                logger.info(f"NEXT SUBTASK: {self.current_subtask}")
-                self.needs_next_subtask = False
-                self.subtask_status = "Start"
-
-            # get the next action from the executor
-            executor_info, actions = self.executor.generate_next_action(
-                instruction=instruction,
-                search_query=self.search_query,
-                subtask=self.current_subtask.name,
-                subtask_info=self.current_subtask.info,
-                future_tasks=self.subtasks,
-                done_task=self.completed_tasks,
-                obs=observation,
-                verifier_feedback=_verifier_feedback,
-            )
 
             self.step_count += 1
 

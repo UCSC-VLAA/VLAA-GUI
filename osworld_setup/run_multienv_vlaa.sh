@@ -2,7 +2,6 @@
 
 python run_multienv_vlaa.py \
     --config_path "configs/your_config.toml" \
-    --pricing_config_path "path_to_pricing.toml" \
     --result_dir "results/your_results_dir" \
     --num_envs 10 \
     --test_config_base_dir "evaluation_examples" \

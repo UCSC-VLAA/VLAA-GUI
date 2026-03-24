@@ -875,9 +875,7 @@ class LMMEngineGemini(_GeminiKeyRotationMixin, LMMEngine):
 
         thinking_level = self._resolve_thinking_level()
         if thinking_level is not None:
-            return types.ThinkingConfig(
-                **thinking_kwargs, thinkingLevel=thinking_level
-            )
+            return types.ThinkingConfig(**thinking_kwargs, thinkingLevel=thinking_level)
 
         budget = (
             self.thinking_budget
@@ -1068,7 +1066,6 @@ class LMMEngineGemini(_GeminiKeyRotationMixin, LMMEngine):
         # Internal control kwargs not accepted by Google API.
         local_kwargs.pop("system_prompt", None)
         local_kwargs.pop("image_content", None)
-        local_kwargs.pop("pricing_config_path", None)
 
         response = client.models.generate_content(
             model=self.model,
@@ -1716,7 +1713,6 @@ class LMMEngineQwen(LMMEngine):
 
         thinking = getattr(completion_message, "reasoning_content", None)
         return completion_message.content, thinking
-
 
 
 class LMMEngineOpenRouter(LMMEngine):

@@ -15,7 +15,6 @@ from vlaa_gui.agent_core.core.engine import OpenAIEmbeddingEngine
 from vlaa_gui.agent_core.utils.common_utils import (
     Node,
     calculate_tokens,
-    calculate_price,
     call_llm_safe,
     call_llm_safe_with_thinking,
     call_llm_formatted,
@@ -38,7 +37,6 @@ class Worker(BaseModule):
         self,
         engine_params: Dict,
         grounding_agent: ACI,
-        pricing_config_path: Optional[str] = None,
         reflection_engine_params: Optional[Dict] = None,
         local_kb_path: str = "kb",
         embedding_engine=OpenAIEmbeddingEngine(),
@@ -82,7 +80,6 @@ class Worker(BaseModule):
 
         self.grounding_agent = grounding_agent
         self.local_kb_path = local_kb_path
-        self.pricing_config_path = pricing_config_path
         self.embedding_engine = embedding_engine
         self.enable_reflection = enable_reflection
         self.use_task_experience = use_task_experience
@@ -174,7 +171,6 @@ class Worker(BaseModule):
         self.turn_count = 0
         self.worker_history = []
         self.reflections = []
-        self.cost_this_turn = 0
         self.screenshot_inputs = []
         self.max_trajector_length = 8
         self.rag_flag = False
@@ -411,344 +407,6 @@ class Worker(BaseModule):
                 logger.info("REFLECTION: %s", reflection)
         return reflection, reflection_thoughts
 
-    def generate_next_action(
-        self,
-        instruction: str,
-        search_query: str,
-        subtask: str,
-        subtask_info: Dict,
-        future_tasks: List[Node],
-        done_task: List[Node],
-        obs: Dict,
-        verifier_feedback: Optional[Dict] = None,
-    ) -> Tuple[Dict, List]:
-        """
-        Predict the next action(s) based on the current observation.
-        """
-
-        assert self.planning_type != "iterative", (
-            "Iterative planning is not called correctly."
-        )
-
-        self.grounding_agent.assign_screenshot(obs)
-        self.grounding_agent.set_task_instruction(instruction)
-
-        generator_message = (
-            ""
-            if self.turn_count > 0
-            else "The initial screen is provided. No action has been taken yet."
-        )
-
-        # Inject recon context on the first turn
-        if self.turn_count == 0 and obs.get("recon_context"):
-            generator_message += (
-                "\n\nENVIRONMENT RECONNAISSANCE (read-only pre-task inspection):\n"
-                + obs["recon_context"]
-                + "\n"
-            )
-
-        # Propose completion gate criteria at step 1
-        if self.turn_count == 0 and self.gate_agent is not None:
-            criteria = self.gate_agent.propose_criteria(instruction, obs)
-            self.gate_criteria_str = GateAgent.format_criteria_for_worker(criteria)
-            logger.info("Gate criteria proposed:\n%s", self.gate_criteria_str)
-
-        # Inject gate criteria into every step's message
-        if self.gate_criteria_str:
-            generator_message += "\n" + self.gate_criteria_str + "\n"
-
-        # Get RAG knowledge, only update system message at t=0
-        if self.turn_count == 0:
-            if self.use_task_experience:
-                subtask_query_key = (
-                    "Task:\n"
-                    + search_query
-                    + "\n\nSubtask: "
-                    + subtask
-                    + "\nSubtask Instruction: "
-                    + subtask_info
-                )
-                retrieved_similar_subtask, retrieved_subtask_experience = (
-                    self.knowledge_base.retrieve_episodic_experience(subtask_query_key)
-                )
-
-                # Dirty fix to replace id with element description during subtask retrieval
-                pattern = r"\(\d+"
-                retrieved_subtask_experience = re.sub(
-                    pattern, "(element_description", retrieved_subtask_experience
-                )
-                retrieved_subtask_experience = retrieved_subtask_experience.replace(
-                    "_id", "_description"
-                )
-
-                logger.info(
-                    "SIMILAR SUBTASK EXPERIENCE: %s",
-                    retrieved_similar_subtask
-                    + "\n"
-                    + retrieved_subtask_experience.strip(),
-                )
-                instruction += "\nYou may refer to some similar subtask experience if you think they are useful. {}".format(
-                    retrieved_similar_subtask + "\n" + retrieved_subtask_experience
-                )
-
-            self.generator_agent.add_system_prompt(
-                self.generator_agent.system_prompt.replace(
-                    "SUBTASK_DESCRIPTION", subtask
-                )
-                .replace("TASK_DESCRIPTION", instruction)
-                .replace("FUTURE_TASKS", ", ".join([f.name for f in future_tasks]))
-                .replace("DONE_TASKS", ",".join(d.name for d in done_task))
-            )
-
-            # Inject tutorials from search agent if available
-            if (
-                hasattr(self.grounding_agent, "tutorials")
-                and self.grounding_agent.tutorials
-            ):
-                tutorials_str = "\n\n### Tutorials Found by Search Agent:\n"
-                for idx, tutorial in enumerate(self.grounding_agent.tutorials, start=1):
-                    tutorials_str += f"#### Tutorial {idx}:\n{tutorial}\n\n"
-                self.generator_agent.add_system_prompt(
-                    self.generator_agent.system_prompt + tutorials_str
-                )
-
-        # Reflection generation does not add its own response, it only gets the trajectory
-        reflection, reflection_thoughts = self.generate_reflection(instruction, obs)
-        if reflection and self.turn_count > 0:
-            generator_message += f"\nYou may use this reflection on the previous action and overall trajectory: {reflection}\n"
-        # Get the grounding agent's knowledge base buffer
-        generator_message += (
-            f"\nCurrent Text Buffer = [{','.join(self.grounding_agent.notes)}]\n"
-        )
-
-        # Only provide subinfo in the very first message to avoid over influence and redundancy
-        if self.turn_count == 0:
-            generator_message += f"Remember only complete the subtask: {subtask}\n"
-            generator_message += f"You can use this extra information for completing the current subtask: {subtask_info}.\n"
-
-            if verifier_feedback:
-                vf_reason = verifier_feedback.get("reason", "")
-                vf_missing = verifier_feedback.get("missing_steps", "")
-                generator_message += "\n**IMPORTANT — Your previous attempt was rejected by the verifier:**\n"
-                if vf_reason:
-                    generator_message += f"- Reason: {vf_reason}\n"
-                if vf_missing:
-                    generator_message += f"- Missing steps: {vf_missing}\n"
-                generator_message += "Do NOT repeat the same actions. Address the verifier's feedback above.\n"
-
-        # logger.info("GENERATOR MESSAGE: %s", generator_message)
-        # Add code agent result from previous step if available (from full task or subtask execution)
-        if (
-            hasattr(self.grounding_agent, "last_code_agent_result")
-            and self.grounding_agent.last_code_agent_result is not None
-        ):
-            if not self.coding_agent_flag:
-                raise ValueError(
-                    "Code agent result found but coding agent is disabled."
-                )
-            code_result = self.grounding_agent.last_code_agent_result
-            generator_message += "\nCODE AGENT RESULT:\n"
-            generator_message += (
-                f"Task/Subtask Instruction: {code_result['task_instruction']}\n"
-            )
-            generator_message += f"Steps Completed: {code_result['steps_executed']}\n"
-            generator_message += f"Max Steps: {code_result['budget']}\n"
-            generator_message += (
-                f"Completion Reason: {code_result['completion_reason']}\n"
-            )
-            generator_message += f"Summary: {code_result['summary']}\n"
-            if code_result["execution_history"]:
-                generator_message += "Execution History:\n"
-                for i, step in enumerate(code_result["execution_history"]):
-                    action = step["action"]
-                    # Format code snippets with proper backticks
-                    if "```python" in action:
-                        # Extract Python code and format it
-                        code_start = action.find("```python") + 9
-                        code_end = action.find("```", code_start)
-                        if code_end != -1:
-                            python_code = action[code_start:code_end].strip()
-                            generator_message += (
-                                f"Step {i + 1}: \n```python\n{python_code}\n```\n"
-                            )
-                        else:
-                            generator_message += f"Step {i + 1}: \n{action}\n"
-                    elif "```bash" in action:
-                        # Extract Bash code and format it
-                        code_start = action.find("```bash") + 7
-                        code_end = action.find("```", code_start)
-                        if code_end != -1:
-                            bash_code = action[code_start:code_end].strip()
-                            generator_message += (
-                                f"Step {i + 1}: \n```bash\n{bash_code}\n```\n"
-                            )
-                        else:
-                            generator_message += f"Step {i + 1}: \n{action}\n"
-                    else:
-                        generator_message += f"Step {i + 1}: \n{action}\n"
-            generator_message += "\n"
-
-            # Log the code agent result section for debugging (truncated execution history)
-            log_message = "\nCODE AGENT RESULT:\n"
-            log_message += (
-                f"Task/Subtask Instruction: {code_result['task_instruction']}\n"
-            )
-            log_message += f"Steps Completed: {code_result['steps_executed']}\n"
-            log_message += f"Max Steps: {code_result['budget']}\n"
-            log_message += f"Completion Reason: {code_result['completion_reason']}\n"
-            log_message += f"Summary: {code_result['summary']}\n"
-            if code_result["execution_history"]:
-                log_message += "Execution History (truncated):\n"
-                # Only log first 3 steps and last 2 steps to keep logs manageable
-                total_steps = len(code_result["execution_history"])
-                for i, step in enumerate(code_result["execution_history"]):
-                    if i < 3 or i >= total_steps - 2:  # First 3 and last 2 steps
-                        action = step["action"]
-                        if "```python" in action:
-                            code_start = action.find("```python") + 9
-                            code_end = action.find("```", code_start)
-                            if code_end != -1:
-                                python_code = action[code_start:code_end].strip()
-                                log_message += (
-                                    f"Step {i + 1}: ```python\n{python_code}\n```\n"
-                                )
-                            else:
-                                log_message += f"Step {i + 1}: {action}\n"
-                        elif "```bash" in action:
-                            code_start = action.find("```bash") + 7
-                            code_end = action.find("```", code_start)
-                            if code_end != -1:
-                                bash_code = action[code_start:code_end].strip()
-                                log_message += (
-                                    f"Step {i + 1}: ```bash\n{bash_code}\n```\n"
-                                )
-                            else:
-                                log_message += f"Step {i + 1}: {action}\n"
-                        else:
-                            log_message += f"Step {i + 1}: {action}\n"
-                    elif i == 3 and total_steps > 5:
-                        log_message += f"... (truncated {total_steps - 5} steps) ...\n"
-
-            # logger.info(
-            #     f"WORKER_CODE_AGENT_RESULT_SECTION - Step {self.turn_count + 1}: Code agent result added to generator message:\n{log_message}"
-            # )
-
-            # Reset the code agent result after adding it to context
-            self.grounding_agent.last_code_agent_result = None
-
-        # Add search agent result from previous step if available
-        if (
-            hasattr(self.grounding_agent, "last_search_agent_result")
-            and self.grounding_agent.last_search_agent_result is not None
-        ):
-            search_result = self.grounding_agent.last_search_agent_result
-            generator_message += "\nSEARCH AGENT RESULT:\n"
-            generator_message += f"Search Query: {search_result.get('query', '')}\n"
-            generator_message += f"Search Completion Reason: {search_result.get('completion_reason', '')}\n"
-            generator_message += "Search Result: "
-            if search_result.get("completion_reason") == "DONE":
-                generator_message += "Search completed successfully. The tutorial has been added to the system prompt.\n"
-            elif search_result.get("completion_reason") == "FAIL":
-                generator_message += f"Search failed. Hint: {search_result.get('final_answer', 'No details available')}\n"
-            else:
-                generator_message += f"Search ended: {search_result.get('final_answer', 'No details available')}\n"
-            generator_message += "\n"
-
-            logger.info(
-                f"WORKER_SEARCH_AGENT_RESULT_SECTION - Step {self.turn_count + 1}: Search agent result added"
-            )
-
-            # Reset the search agent result after adding it to context
-            self.grounding_agent.last_search_agent_result = None
-
-        # On the final step, force the agent to make a terminal decision
-        if obs.get("is_last_step"):
-            generator_message += (
-                "\n⚠️ FINAL STEP — This is your LAST action before the step budget is exhausted. "
-                "You MUST choose one of:\n"
-                "  - agent.done() if the task has been completed\n"
-                "  - agent.fail() if the task cannot be completed or is infeasible\n"
-                "Do NOT choose any other action. Any non-terminal action will be wasted.\n"
-            )
-
-        self.generator_agent.add_message(
-            generator_message, image_content=obs["screenshot"], role="user"
-        )
-
-        format_checkers = [
-            SINGLE_ACTION_FORMATTER,
-            partial(CODE_VALID_FORMATTER, self.grounding_agent, obs),
-        ]
-
-        responses = []
-        for _ in range(self.action_tts_num):
-            plan = call_llm_formatted(
-                self.generator_agent,
-                format_checkers,
-                agent_type="executor",
-                temperature=self.temperature,
-            )
-            responses.append(plan)
-        # Select the best plan among multiple responses
-        if self.action_tts_num > 1:
-            plan = self.select(
-                instruction,
-                obs["screenshot"],
-                responses,
-                history_cache=self.worker_history,
-            )
-        else:
-            plan = responses[0]
-
-        self.worker_history.append(plan)
-        logger.info("PLAN: %s", plan)
-        self.generator_agent.add_message(plan, role="assistant")
-
-        input_tokens, output_tokens = calculate_tokens(self.generator_agent.messages)
-        cost = calculate_price(
-            self.generator_agent.messages,
-            model=self.engine_params.get("model"),
-            config_path=self.pricing_config_path,
-        )
-        self.cost_this_turn += cost
-        logger.debug("EXECUTOR COST: %s", self.cost_this_turn)
-
-        plan_code = parse_single_code_from_string(plan.split("Grounded Action")[-1])
-        plan_code = sanitize_code(plan_code)
-        plan_code = extract_first_agent_function(plan_code)
-        try:
-            assert plan_code, "Plan code should not be empty"
-            exec_code = create_pyautogui_code(self.grounding_agent, plan_code, obs)
-        except Exception as e:
-            logger.error(
-                f"Could not evaluate the following plan code:\n{plan_code}\nError: {e}"
-            )
-            exec_code = self.grounding_agent.wait(
-                1.333
-            )  # Skip a turn if the code cannot be evaluated
-
-        executor_info = {
-            "current_subtask": subtask,
-            "current_subtask_info": subtask_info,
-            "executor_plan": plan,
-            "plan_code": plan_code,
-            "reflection": reflection,
-            "reflection_thoughts": reflection_thoughts,
-            "code_agent_output": (
-                self.grounding_agent.last_code_agent_result
-                if hasattr(self.grounding_agent, "last_code_agent_result")
-                and self.grounding_agent.last_code_agent_result is not None
-                else None
-            ),
-            "num_input_tokens_executor": input_tokens,
-            "num_output_tokens_executor": output_tokens,
-        }
-        self.turn_count += 1
-
-        self.screenshot_inputs.append(obs["screenshot"])
-        self.flush_messages()
-
-        return executor_info, [exec_code]
 
     def generate_next_action_iteratively(
         self, obs: dict, instruction: str
@@ -1131,14 +789,6 @@ class Worker(BaseModule):
         self.worker_history.append(plan)
         logger.info("FULL PLAN:\n %s", plan)
         self.generator_agent.add_message(plan, role="assistant")
-
-        cost = calculate_price(
-            self.generator_agent.messages,
-            model=self.engine_params.get("model"),
-            config_path=self.pricing_config_path,
-        )
-        self.cost_this_turn += cost
-        logger.debug("EXECUTOR COST: %s", self.cost_this_turn)
 
         plan_code = parse_single_code_from_string(plan.split("Grounded Action")[-1])
         plan_code = sanitize_code(plan_code)

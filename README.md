@@ -1,198 +1,130 @@
 # VLAA-GUI
 
-VLAA-GUI is a Python framework for building and evaluating GUI agents that act through desktop screenshots, grounding models, and `pyautogui`-style actions. The current codebase centers on a manager-worker agent architecture, optional memory and retrieval, and benchmark integrations for OSWorld and WindowsAgentArena.
+<p align="center">
+  <img src="assets/gui_logo.jpg" alt="VLAA-GUI logo" width="140">
+</p>
 
-## What is in this repo
+<p align="center">
+  <strong>Knowing When to <code>STOP</code>, <code>RECOVER</code>, and <code>SEARCH</code></strong><br>
+  A Modular Framework for GUI Automation
+</p>
 
-- An interactive local desktop agent exposed as the `agent` CLI.
-- A planner-executor stack with explicit grounding, reflection, and token tracking.
-- Optional retrieval, episodic/narrative memory, zoom grounding, and code execution.
-- Integration code for OSWorld and WindowsAgentArena evaluations.
-- Unit tests around grounding, hover actions, and platform-specific behavior.
+<p align="center">
+  <a href="https://ucsc-vlaa.github.io/VLAA-GUI">Project Page</a>
+  |
+  <span>arXiv coming soon</span>
+  |
+  <a href="https://github.com/UCSC-VLAA/VLAA-GUI">Code</a>
+</p>
 
-## Core architecture
+This repository accompanies our paper, **"Knowing When to `STOP`, `RECOVER`, and `SEARCH`: A Modular Framework for GUI Automation."**
 
-The main runtime lives under `vlaa_gui/`:
+<p align="center">
+  <img src="assets/results.png" alt="Main benchmark results for VLAA-GUI" width="92%">
+</p>
 
-- `agents/agent.py`: top-level orchestrator.
-- `agents/manager.py`: high-level planner that decomposes tasks into subtasks.
-- `agents/worker.py`: executor that generates grounded GUI actions and reflections.
-- `agents/grounding.py`: `OSWorldACI`, the screenshot-based action interface used by the local agent and benchmark runners.
-- `core/engine.py`: model/provider backends.
-- `core/knowledge.py`: retrieval and memory support.
-- `memory/procedural_memory.py`: system prompts and action-space instructions.
+## Highlights
 
-The agent is model/provider-agnostic at the framework level. The config supports providers such as OpenAI, Anthropic, Gemini, Ark/Volcengine, Azure OpenAI, Qwen, and others implemented in `engine.py`.
+- VLAA-GUI reaches **77.5%** on **OSWorld-Verified**.
+- VLAA-GUI reaches **61.0%** on **WindowsAgentArena**.
+- Three of five evaluated backbones surpass human performance on OSWorld in a single pass.
+- With Sonnet 4.6, VLAA-GUI at **15 action steps** already exceeds the best published **50-step** system reported in the paper.
 
-## Supported workflows
+## Method Overview
 
-### 1. Local interactive agent
+VLAA-GUI centers on a manager agent that interacts with the desktop in a perceive-reason-act loop. Two modules are applied as mandatory post-action checks: the **Completeness Verifier**, which rejects unsupported completion claims unless success is visible on the UI, and the **Loop Breaker**, which escalates recovery when the trajectory shows repeated failures or recurring screen states. Three additional tools are available on demand: a **Search Agent** for unfamiliar workflows, a **Coding Agent** for code-centric actions, and a **Grounding Agent** for precise action localization.
 
-Runs on your current machine, captures the live desktop, and executes actions locally.
+<p align="center">
+  <img src="assets/pipeline.png" alt="VLAA-GUI system overview" width="92%">
+</p>
 
-### 2. OSWorld evaluation
+## Failure Analysis
 
-VLAA-GUI includes runner glue for the OSWorld benchmark. Use this path when you want to evaluate inside OSWorld's VM-backed `DesktopEnv`, not when you want to control your current desktop directly.
+The paper studies two dominant GUI-agent failure modes: false completion and repetitive looping. The Completeness Verifier reduces unsupported termination, while the Loop Breaker cuts wasted action steps for loop-prone models.
 
-The OSWorld-specific setup and runner notes live in [`osworld_setup/README.md`](/Users/sergiu/research/VLAA-GUI/osworld_setup/README.md).
+<p align="center">
+  <img src="assets/false-completions.png" alt="False completion analysis" width="48%">
+  <img src="assets/looping.png" alt="Looping analysis" width="48%">
+</p>
 
-### 3. WindowsAgentArena evaluation
+## Repository Structure
 
-Scripts in [`waa_setup/README.md`](/Users/sergiu/research/VLAA-GUI/waa_setup/README.md) adapt the agent to Microsoft's WindowsAgentArena benchmark.
+The main implementation lives under [`vlaa_gui/`](vlaa_gui):
 
-## Requirements
+- [`vlaa_gui/agents/`](vlaa_gui/agents): manager, worker, verifier, grounding, coding, and search agents.
+- [`vlaa_gui/core/`](vlaa_gui/core): model/provider backends and shared runtime modules.
+- [`vlaa_gui/memory/`](vlaa_gui/memory): procedural memory and prompting logic.
+- [`vlaa_gui/utils/`](vlaa_gui/utils): local environment helpers, formatting, and token tracking.
+- [`vlaa_gui/run_agent.py`](vlaa_gui/run_agent.py): local interactive entry point.
 
-- Python `>=3.12`
-- `uv` recommended for environment management
-- A configured model provider and API credentials
-- For local runs:
-  - macOS: grant Accessibility and Screen Recording permissions to the terminal/app you use
-  - Linux/Windows: run in an environment where `pyautogui` can control the desktop
+Supporting files:
+
+- [`config/template.toml`](config/template.toml): configuration template.
+- [`scripts/run_agent.sh`](scripts/run_agent.sh): AWS-oriented launcher script for local runs.
+- [`osworld_setup/README.md`](osworld_setup/README.md): note for OSWorld-side integration.
+- [`tests/`](tests): unit tests for platform behavior and CLI parsing.
 
 ## Installation
 
+VLAA-GUI requires **Python 3.12+**. We recommend [`uv`](https://github.com/astral-sh/uv) for environment management.
+
 ```bash
-git clone <your-fork-or-upstream-url>
+git clone https://github.com/UCSC-VLAA/VLAA-GUI.git
 cd VLAA-GUI
 uv sync
 ```
 
-If you prefer editable install without syncing the lockfile:
-
-```bash
-uv pip install -e .
-```
-
 ## Configuration
 
-Start from the template:
+Start from the provided template:
 
 ```bash
 cp config/template.toml config/config.toml
 ```
 
-Then fill in the sections you actually need:
+Then fill in the sections you need for your setup:
 
-- `[model]`: main planning/execution model
-- `[grounding]`: grounding model and screen-resize settings
-- `[coding]`: model used by the optional coding agent
-- `[embedding]`: embedding backend for memory retrieval
-- `[perception]`: observation type such as `screenshot` or `a11y_tree`
-- `[planning]`: reflection and planner depth settings
-- `[context_management]`: retrieval backend and memory mode
-- `[action_space]`: `pyautogui` or `pyautogui_coding`
+- `[model]`: main manager model.
+- `[grounding]`: grounding model or endpoint configuration.
+- `[coding]`: model used by the optional coding agent.
+- `[embedding]`: embedding backend.
+- `[searcher]`: on-demand search agent backend.
+- `[gate]`: completeness and loop-handling behavior.
+- `[action_space]`: `pyautogui` or `pyautogui_coding`.
 
-Important runtime notes:
+## Running VLAA-GUI Locally
 
-- The local CLI defaults to `config/config.toml`.
-- On first run, the agent downloads seed knowledge-base files into `agent_memory/` from the upstream Agent-S release assets.
-- Logs and token-usage summaries are written under `logs/`.
-
-## Running the local agent
+The default local entry point is:
 
 ```bash
-agent --config-path config/config.toml # You need to source the uv environment first
+agent
 ```
 
-Or:
+Notes:
 
-```bash
-uv run vlaa_gui.run_agent --config-path config/config.toml
+- On macOS, grant **Accessibility** and **Screen Recording** permissions to the terminal application you use.
+- [`scripts/run_agent.sh`](scripts/run_agent.sh) expects AWS credentials and will exit early if they are not present.
+- The `pyautogui_coding` action space enables local code execution and should only be used in trusted environments.
+- Logs and token usage summaries are written under [`logs/`](logs).
+
+## OSWorld Evaluation
+
+This checkout includes a lightweight OSWorld handoff note in [`osworld_setup/README.md`](osworld_setup/README.md). The full benchmark-side integration instructions live in the OSWorld repository and should be followed from there.
+
+
+## Citation
+
+If you find this repository useful, please cite our work. The final arXiv link will be added once it is public.
+
+```bibtex
+@misc{vlaagui2026,
+  title={Knowing When to STOP, RECOVER, and SEARCH: A Modular Framework for GUI Automation},
+  author={Qijun Han and Haoqin Tu and Zijun Wang and Haoyue Dai and Yiyang Zhou and Nancy Lau and Alvaro A. Cardenas and Yuhui Xu and Ran Xu and Caiming Xiong and Zeyu Zheng and Huaxiu Yao and Yuyin Zhou and Cihang Xie},
+  year={2026},
+  note={arXiv coming soon}
+}
 ```
-
-This starts an interactive loop that prompts for:
-
-```text
-Query:
-```
-
-After each task, the run writes logs plus token usage summaries to `logs/`.
-
-## OSWorld quick start
-
-OSWorld is a separate benchmark environment. The flow is:
-
-1. Set up OSWorld itself, including its VM images and `DesktopEnv`.
-2. Install this package into the same Python environment OSWorld uses.
-3. Copy or mount the contents of [`osworld_setup/`](/Users/sergiu/research/VLAA-GUI/osworld_setup/) into your OSWorld workspace.
-4. Run the OSWorld adapter scripts from inside that environment.
-
-Minimal install step inside the OSWorld environment:
-
-```bash
-cd /path/to/VLAA-GUI
-uv pip install .
-```
-
-Typical entry points:
-
-```bash
-uv run python osworld_setup/run_locally.py
-bash osworld_setup/run_multienv_vlaa.sh
-```
-
-Use the benchmark-specific README before running either script:
-
-- [`osworld_setup/README.md`](/Users/sergiu/research/VLAA-GUI/osworld_setup/README.md)
-
-Practical notes:
-
-- OSWorld runs inside benchmark VMs; the local `agent` CLI does not.
-- For OSWorld, treat `osworld_setup/run_locally.py` as the main single-VM entry point.
-- Use `osworld_setup/run_multienv_vlaa.sh` for the multi-VM path; it parses the full OSWorld-style CLI and forwards normalized args to the Python runner.
-- Keep your config aligned with the environment: use screenshot observations unless you have explicitly verified another perception mode is supported by that runner.
-- Result artifacts, logs, and benchmark outputs are written by the OSWorld runners, not by the local interactive loop.
-
-## Full Bedrock local run
-
-A ready-to-edit Bedrock profile is included at [`config/full-bedrock.toml`](/Users/sergiu/research/VLAA-GUI/config/full-bedrock.toml). It configures the local interactive agent to use Bedrock for planning, grounding, coding, and search.
-
-Launcher script:
-
-```bash
-./scripts/run-agent-full-bedrock.sh
-```
-
-The script:
-
-- uses [`config/full-bedrock.toml`](/Users/sergiu/research/VLAA-GUI/config/full-bedrock.toml) by default
-- checks that AWS credentials are available through `AWS_PROFILE` or standard AWS env vars
-- forwards any extra CLI args to the `agent` command
-
-Examples:
-
-```bash
-AWS_PROFILE=my-bedrock-profile ./scripts/run-agent-full-bedrock.sh
-AWS_PROFILE=my-bedrock-profile ./scripts/run-agent-full-bedrock.sh --config-path config/full-bedrock.toml
-```
-
-## Useful config switches
-
-- `grounding.enable_zoom_grounding = true`
-  - Run a coarse grounding pass and then refine on a zoomed crop.
-- `context_management.memory_type = "episodic"` or `"mixed"`
-  - Turn on memory retrieval and memory updates.
-- `context_management.search_engine = "llm"` or `"perplexica"`
-  - Use retrieval-backed knowledge instead of pure local reasoning.
-- `context_management.search_engine = "search_agent"`
-  - Use the dedicated search agent path instead of the legacy KB retrieval flow.
-- `action_space.engine = "pyautogui_coding"`
-  - Exposes a coding agent that can execute local code.
-  - This is powerful and unsafe if you do not trust the task or model.
-
-## Evaluation entry points
-
-Top-level evaluation scripts are included, but each benchmark has its own environment and setup steps:
-
-- OSWorld local runner: [`osworld_setup/run_locally.py`](/Users/sergiu/research/VLAA-GUI/osworld_setup/run_locally.py)
-- OSWorld multi-environment runner: [`osworld_setup/run_multienv_vlaa.py`](/Users/sergiu/research/VLAA-GUI/osworld_setup/run_multienv_vlaa.py)
-- WAA sequential runner: [`waa_setup/run.py`](/Users/sergiu/research/VLAA-GUI/waa_setup/run.py)
-- WAA multi-VM runner: [`waa_setup/run_multienv_vlaa.py`](/Users/sergiu/research/VLAA-GUI/waa_setup/run_multienv_vlaa.py)
-
-Use the benchmark-specific READMEs before running those scripts:
-
-- [`osworld_setup/README.md`](/Users/sergiu/research/VLAA-GUI/osworld_setup/README.md)
-- [`waa_setup/README.md`](/Users/sergiu/research/VLAA-GUI/waa_setup/README.md)
 
 ## Acknowledgements
-This project builds on top of the open-source [Agent-S](https://github.com/simular-ai/Agent-S) codebase and is inspired by the growing ecosystem of GUI agents and benchmarks. Thanks to the communities around [Agent-S](https://github.com/simular-ai/Agent-S), [OSWorld](https://github.com/xlang-ai/OSWorld), [WindowsAgentArena](https://github.com/microsoft/WindowsAgentArena), and others for their contributions to this exciting space!
+
+This project builds on the open-source [Agent-S](https://github.com/simular-ai/Agent-S) codebase and is closely connected to the broader GUI-agent ecosystem, including [OSWorld](https://github.com/xlang-ai/OSWorld) and [WindowsAgentArena](https://github.com/microsoft/WindowsAgentArena). We thank these communities for making large-scale evaluation and comparison possible.

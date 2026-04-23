@@ -1,6 +1,6 @@
-from vlaa_gui.agent_core.agents.MacOSACI import MacOSACI
-from vlaa_gui.agent_core.agents.grounding import OSWorldACI
-from vlaa_gui.agent_core.run_agent import (
+from vlaa_gui.agents.MacOSACI import MacOSACI
+from vlaa_gui.agents.grounding import OSWorldACI
+from vlaa_gui.run_agent import (
     _normalize_observation_type_for_platform,
     _select_grounding_agent_class,
 )

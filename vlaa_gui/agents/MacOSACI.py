@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from vlaa_gui.agent_core.agents.grounding import OSWorldACI, agent_action
+from vlaa_gui.agents.grounding import OSWorldACI, agent_action
 
 
 def _normalize_macos_key(key: str) -> str:

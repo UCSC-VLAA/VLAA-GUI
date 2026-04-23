@@ -10,9 +10,9 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from vlaa_gui.agent_core.core.module import BaseModule
-from vlaa_gui.agent_core.memory.procedural_memory import PROCEDURAL_MEMORY
-from vlaa_gui.agent_core.utils.common_utils import (
+from vlaa_gui.core.module import BaseModule
+from vlaa_gui.memory.procedural_memory import PROCEDURAL_MEMORY
+from vlaa_gui.utils.common_utils import (
     call_llm_safe,
     load_embeddings,
     load_knowledge_base,

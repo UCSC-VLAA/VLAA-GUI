@@ -3,10 +3,10 @@ import os
 import platform
 from typing import Dict, List, Optional, Tuple
 
-from vlaa_gui.agent_core.agents.grounding import ACI
-from vlaa_gui.agent_core.agents.worker import Worker
-from vlaa_gui.agent_core.utils.common_utils import Node
-from vlaa_gui.agent_core.core.engine import (
+from vlaa_gui.agents.grounding import ACI
+from vlaa_gui.agents.worker import Worker
+from vlaa_gui.utils.common_utils import Node
+from vlaa_gui.core.engine import (
     OpenAIEmbeddingEngine,
     GeminiEmbeddingEngine,
     AzureOpenAIEmbeddingEngine,

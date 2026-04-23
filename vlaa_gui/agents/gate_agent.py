@@ -4,9 +4,9 @@ import platform
 import re
 from typing import Dict, List, Optional
 
-from vlaa_gui.agent_core.core.module import BaseModule
-from vlaa_gui.agent_core.memory.procedural_memory import PROCEDURAL_MEMORY
-from vlaa_gui.agent_core.utils.common_utils import call_llm_safe
+from vlaa_gui.core.module import BaseModule
+from vlaa_gui.memory.procedural_memory import PROCEDURAL_MEMORY
+from vlaa_gui.utils.common_utils import call_llm_safe
 
 logger = logging.getLogger("desktopenv.agent")
 

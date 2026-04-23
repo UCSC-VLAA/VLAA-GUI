@@ -1,11 +1,11 @@
 [project]
 name = "vlaa_gui"
-version = "1.1.0"
+version = "1.1.1"
 description = "A collection of GUI agents for various tasks."
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
-    {name = "VLAA", email = "tbd@email.com"},
+    {name = "UCSC-VLAA", email = "tbd@email.com"},
 ]
 
 dependencies = [
@@ -40,4 +40,4 @@ default-groups = ["dev"]
 packages = ["vlaa_gui"]
 
 [project.scripts]
-agent = "vlaa_gui.agent_core.run_agent:main"
+agent = "vlaa_gui.run_agent:main"

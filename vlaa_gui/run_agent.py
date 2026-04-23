@@ -15,12 +15,12 @@ from typing import Any, Dict, List, Optional
 
 from PIL import Image
 
-from vlaa_gui.agent_core.agents.grounding import OSWorldACI
-from vlaa_gui.agent_core.agents.MacOSACI import MacOSACI
-from vlaa_gui.agent_core.agents.agent import Agent
-from vlaa_gui.agent_core.agents.verifier_agent import VerifierAgent
-from vlaa_gui.agent_core.utils.local_env import LocalEnv
-from vlaa_gui.agent_core.utils.token_tracker import (
+from vlaa_gui.agents.grounding import OSWorldACI
+from vlaa_gui.agents.MacOSACI import MacOSACI
+from vlaa_gui.agents.agent import Agent
+from vlaa_gui.agents.verifier_agent import VerifierAgent
+from vlaa_gui.utils.local_env import LocalEnv
+from vlaa_gui.utils.token_tracker import (
     reset_global_tracker,
 )
 

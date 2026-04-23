@@ -1,4 +1,4 @@
-from vlaa_gui.agent_core.memory.procedural_memory import PROCEDURAL_MEMORY
+from vlaa_gui.memory.procedural_memory import PROCEDURAL_MEMORY
 
 
 class DummyAgent:

@@ -7,7 +7,7 @@ import numpy as np
 from typing import Tuple, List, Dict, Optional
 from openai import RateLimitError
 from pydantic import BaseModel, ValidationError
-from vlaa_gui.agent_core.memory.procedural_memory import PROCEDURAL_MEMORY
+from vlaa_gui.memory.procedural_memory import PROCEDURAL_MEMORY
 import pickle
 from PIL import Image, ImageDraw
 import io
@@ -24,7 +24,7 @@ def get_token_tracker():
     global _token_tracker
     if _token_tracker is None:
         try:
-            from vlaa_gui.agent_core.utils.token_tracker import get_global_tracker
+            from vlaa_gui.utils.token_tracker import get_global_tracker
 
             _token_tracker = get_global_tracker()
         except ImportError:
@@ -157,7 +157,7 @@ def call_llm_safe(
     Returns:
         str: The response from the LLM.
     """
-    from vlaa_gui.agent_core.core.engine import (
+    from vlaa_gui.core.engine import (
         BedrockRateLimitError,
         LLMRetryExhaustedError,
     )
@@ -226,7 +226,7 @@ def call_llm_safe_with_thinking(
     Calls the agent's LLM with retries and token tracking, specifically for agents that provide "thinking" output.
     Returns both the response and the thinking process.
     """
-    from vlaa_gui.agent_core.core.engine import (
+    from vlaa_gui.core.engine import (
         BedrockRateLimitError,
         LLMRetryExhaustedError,
     )

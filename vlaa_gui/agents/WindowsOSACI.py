@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 import psutil
 import requests
-from vlaa_gui.agent_core.utils.common_utils import box_iou
+from vlaa_gui.utils.common_utils import box_iou
 
 
 if platform.system() == "Windows":
@@ -15,7 +15,7 @@ if platform.system() == "Windows":
     import win32gui
     import win32process
 
-from vlaa_gui.agent_core.agents.grounding import ACI, agent_action
+from vlaa_gui.agents.grounding import ACI, agent_action
 
 
 # Helper functions

@@ -6,7 +6,7 @@ import numpy as np
 from google.genai import types
 from PIL import Image
 
-from vlaa_gui.agent_core.core.engine import (
+from vlaa_gui.core.engine import (
     LMMEngineAnthropic,
     LMMEngineAnthropicVertex,
     LMMEngineAnthropicBedrock,

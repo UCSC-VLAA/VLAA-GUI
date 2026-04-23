@@ -12,7 +12,7 @@ VLAA-GUI is a Python framework for building and evaluating GUI agents that act t
 
 ## Core architecture
 
-The main runtime lives under `vlaa_gui/agent_core/`:
+The main runtime lives under `vlaa_gui/`:
 
 - `agents/agent.py`: top-level orchestrator.
 - `agents/manager.py`: high-level planner that decomposes tasks into subtasks.
@@ -97,7 +97,7 @@ agent --config-path config/config.toml # You need to source the uv environment f
 Or:
 
 ```bash
-uv run vlaa_gui.agent_core.run_agent --config-path config/config.toml
+uv run vlaa_gui.run_agent --config-path config/config.toml
 ```
 
 This starts an interactive loop that prompts for:

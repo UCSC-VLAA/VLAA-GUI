@@ -6,15 +6,13 @@ from typing import Dict, List, Tuple, Optional
 import platform
 from functools import partial
 
-from vlaa_gui.agent_core.agents.grounding import ACI
-from vlaa_gui.agent_core.agents.gate_agent import GateAgent
-from vlaa_gui.agent_core.core.module import BaseModule
-from vlaa_gui.agent_core.core.knowledge import KnowledgeBase
-from vlaa_gui.agent_core.memory.procedural_memory import PROCEDURAL_MEMORY
-from vlaa_gui.agent_core.core.engine import OpenAIEmbeddingEngine
-from vlaa_gui.agent_core.utils.common_utils import (
-    Node,
-    calculate_tokens,
+from vlaa_gui.agents.grounding import ACI
+from vlaa_gui.agents.gate_agent import GateAgent
+from vlaa_gui.core.module import BaseModule
+from vlaa_gui.core.knowledge import KnowledgeBase
+from vlaa_gui.memory.procedural_memory import PROCEDURAL_MEMORY
+from vlaa_gui.core.engine import OpenAIEmbeddingEngine
+from vlaa_gui.utils.common_utils import (
     call_llm_safe,
     call_llm_safe_with_thinking,
     call_llm_formatted,
@@ -24,7 +22,7 @@ from vlaa_gui.agent_core.utils.common_utils import (
     extract_first_agent_function,
 )
 
-from vlaa_gui.agent_core.utils.formatters import (
+from vlaa_gui.utils.formatters import (
     SINGLE_ACTION_FORMATTER,
     CODE_VALID_FORMATTER,
 )

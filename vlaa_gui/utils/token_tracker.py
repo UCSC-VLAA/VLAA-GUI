@@ -176,7 +176,7 @@ class TokenTracker:
             subtask: Optional subtask description
             metadata: Optional additional metadata
         """
-        from vlaa_gui.agent_core.utils.common_utils import calculate_tokens
+        from vlaa_gui.utils.common_utils import calculate_tokens
 
         input_tokens, output_tokens = calculate_tokens(messages)
 

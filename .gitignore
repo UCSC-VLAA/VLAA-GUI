@@ -181,3 +181,4 @@ config/*
 !config/template.toml
 
 debug/
+token_summary/

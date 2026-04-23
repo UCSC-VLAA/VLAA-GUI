@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG_PATH="${CONFIG_PATH:-"$ROOT_DIR/config/full-bedrock.toml"}"
+CONFIG_PATH="${CONFIG_PATH:-"$ROOT_DIR/config/your-config.toml"}"
 
 if [[ ! -f "$CONFIG_PATH" ]]; then
   echo "Config not found: $CONFIG_PATH" >&2

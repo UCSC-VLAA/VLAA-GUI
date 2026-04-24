@@ -8,6 +8,7 @@ from PIL import Image
 
 from vlaa_gui.core.engine import (
     LMMEngineAnthropic,
+    LMMEngineAnthropicBedrockMantle,
     LMMEngineAnthropicVertex,
     LMMEngineAnthropicBedrock,
     LMMEngineArk,
@@ -25,6 +26,7 @@ from vlaa_gui.core.engine import (
 ENGINE_REGISTRY = {
     "openai": LMMEngineOpenAI,
     "anthropic": LMMEngineAnthropic,
+    "anthropic_bedrock_mantle": LMMEngineAnthropicBedrockMantle,
     "anthropic_vertex": LMMEngineAnthropicVertex,
     "anthropic_bedrock": LMMEngineAnthropicBedrock,
     "azure": LMMEngineAzureOpenAI,
@@ -289,7 +291,12 @@ class LMMAgent:
         # For API-style inference from Anthropic
         elif isinstance(
             self.engine,
-            (LMMEngineAnthropic, LMMEngineAnthropicVertex, LMMEngineAnthropicBedrock),
+            (
+                LMMEngineAnthropic,
+                LMMEngineAnthropicVertex,
+                LMMEngineAnthropicBedrock,
+                LMMEngineAnthropicBedrockMantle,
+            ),
         ):
             # infer role from previous message
             if role != "user":

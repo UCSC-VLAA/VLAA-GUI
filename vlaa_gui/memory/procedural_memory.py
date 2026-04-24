@@ -571,23 +571,22 @@ class PROCEDURAL_MEMORY:
           {"complete": true/false, "reason": "<short>", "missing_steps": "<what evidence/action is still needed, or empty if complete>"}.
         """
     )
+    
 
+    PHRASE_TO_WORD_COORDS_PROMPT = textwrap.dedent(
+        """
+    You are an expert in graphical user interfaces. Your task is to process a phrase of text, and identify the most relevant word on the computer screen.
+    You are provided with a phrase, a table with all the text on the screen, and a screenshot of the computer screen. You will identify the single word id that is best associated with the provided phrase.
+    This single word must be displayed on the computer screenshot, and its location on the screen should align with the provided phrase.
+    Each row in the text table provides 2 pieces of data in the following order. 1st is the unique word id. 2nd is the corresponding word.
 
-    TASK_SUMMARIZATION_PROMPT = """
-    You are a summarization agent designed to analyze a trajectory of desktop task execution.
-    You have access to the Task Description and Whole Trajectory including plan, verification and reflection at each step.
-    Your summarized information will be referred to by another agent when performing the tasks.
-    You should follow the below instructions:
-    1. If the task is successfully executed, you should summarize the successful plan based on the whole trajectory to finish the task.
-    2. Otherwise, provide the reasons why the task is failed and potential suggestions that may avoid this failure.
+    To be successful, it is very important to follow all these rules:
+    1. First, think step by step and generate your reasoning about which word id to click on.
+    2. Then, output the unique word id. Remember, the word id is the 1st number in each row of the text table.
+    3. If there are multiple occurrences of the same word, use the surrounding context in the phrase to choose the correct one. Pay very close attention to punctuation and capitalization.
 
-    **ATTENTION**
-    1. Only extract the correct plan and do not provide redundant steps.
-    2. Do not contain grounded actions in the plan.
-    3. If there are the successfully used hot-keys, make sure to include them in the plan.
-    4. The suggestions are for another agent not human, so they must be doable through the agent's action.
-    5. Don't generate high-level suggestions (e.g., Implement Error Handling).
     """
+    )
 
 
     CODE_AGENT_PROMPT = textwrap.dedent(

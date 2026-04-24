@@ -4,18 +4,16 @@ version = "1.1.1"
 description = "A collection of GUI agents for various tasks."
 readme = "README.md"
 requires-python = ">=3.12"
-authors = [
-    {name = "UCSC-VLAA", email = "tbd@email.com"},
-]
+authors = [{ name = "UCSC-VLAA", email = "tbd@email.com" }]
 
 dependencies = [
-    "anthropic>=0.84.0",
+    "anthropic>=0.97.0",
     "backoff>=2.2.1",
-    "boto3>=1.42.68",
+    "boto3>=1.42.94",
     "dashscope>=1.25.14",
-    "google-genai>=1.67.0",
+    "google-genai>=1.73.1",
     "numpy>=2.4.3",
-    "openai>=2.28.0",
+    "openai>=2.32.0",
     "pillow>=12.1.1",
     "pyautogui>=0.9.54",
     "pyobjc>=12.1; sys_platform == 'darwin'",
@@ -25,16 +23,17 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = [
-    "pytest>=8.0.0",
-]
+dev = ["pytest>=8.0.0"]
 
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build<0.12"]
+build-backend = "uv_build"
 
 [tool.uv]
 default-groups = ["dev"]
+
+[tool.uv.build-backend]
+module-root = ""
 
 [tool.setuptools]
 packages = ["vlaa_gui"]

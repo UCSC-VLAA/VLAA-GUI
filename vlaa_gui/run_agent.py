@@ -680,8 +680,6 @@ def run_agent(
                         os.system(
                             'zenity --info --title="OpenACI Agent" --text="Task Completed" --width=200 --height=100'
                         )
-
-                    agent.update_narrative_memory(traj)
                     break
 
                 print(
@@ -705,7 +703,6 @@ def run_agent(
                         'zenity --info --title="OpenACI Agent" --text="Task Completed" --width=200 --height=100'
                     )
 
-                agent.update_narrative_memory(traj)
                 break
 
         if is_fail:
@@ -718,7 +715,6 @@ def run_agent(
                     'zenity --info --title="OpenACI Agent" --text="Task Completed" --width=200 --height=100'
                 )
 
-            agent.update_narrative_memory(traj)
             break
 
         if "next" in code[0].lower():

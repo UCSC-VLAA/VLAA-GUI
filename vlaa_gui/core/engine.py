@@ -5,6 +5,11 @@ import backoff
 import boto3
 import numpy as np
 from anthropic import Anthropic, AnthropicVertex
+
+try:
+    from anthropic import AnthropicBedrockMantle
+except ImportError:
+    from anthropic import AnthropicBedrock as AnthropicBedrockMantle
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 from google import genai
@@ -695,6 +700,242 @@ class LMMEngineAnthropic(LMMEngine):
         return response.content[0].text
 
 
+class LMMEngineAnthropicBedrockMantle(LMMEngine):
+    """Anthropic Messages API client for Amazon Bedrock Mantle endpoints."""
+
+    def __init__(
+        self,
+        base_url=None,
+        api_key=None,
+        model=None,
+        region=None,
+        aws_keys=None,
+        thinking=False,
+        **kwargs,
+    ):
+        assert model is not None, "model must be provided"
+        self.model = model
+        self.base_url = base_url
+        self.api_key = api_key
+        self.region = (
+            region or os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
+        )
+        self.thinking = thinking
+        self.thinking_budget = kwargs.get("thinking_budget")
+        self.temperature = kwargs.get("temperature")
+        self.top_p = kwargs.get("top_p")
+        self._keys = self._resolve_keys(aws_keys)
+        self._clients = {}
+        self._key_rr_index = 0
+        self.llm_client = None
+        self.last_usage = None
+
+    def _resolve_keys(self, aws_keys):
+        if not aws_keys:
+            return [None]
+
+        resolved = []
+        for entry in aws_keys:
+            if not isinstance(entry, dict):
+                continue
+            key_id = entry.get("aws_access_key_id", "").strip()
+            secret = entry.get("aws_secret_access_key", "").strip()
+            session_token = entry.get("aws_session_token", "").strip()
+            profile = entry.get("aws_profile", "").strip()
+            if key_id and secret:
+                key_entry = {
+                    "aws_access_key": key_id,
+                    "aws_secret_key": secret,
+                }
+                if session_token:
+                    key_entry["aws_session_token"] = session_token
+                resolved.append(key_entry)
+            elif profile:
+                resolved.append({"aws_profile": profile})
+
+        return resolved if resolved else [None]
+
+    def _get_or_create_client(self, key_entry):
+        if key_entry is None:
+            cache_key = "default"
+        elif "aws_profile" in key_entry:
+            cache_key = f"profile:{key_entry['aws_profile']}"
+        else:
+            cache_key = f"key:{key_entry['aws_access_key']}"
+
+        if cache_key not in self._clients:
+            client_kwargs = {}
+            if self.region:
+                client_kwargs["aws_region"] = self.region
+            if self.api_key:
+                client_kwargs["api_key"] = self.api_key
+            if self.base_url:
+                client_kwargs["base_url"] = self.base_url
+            if key_entry is not None:
+                client_kwargs.update(key_entry)
+            self._clients[cache_key] = AnthropicBedrockMantle(**client_kwargs)
+        return self._clients[cache_key]
+
+    def _next_client(self):
+        key_entry = self._keys[self._key_rr_index % len(self._keys)]
+        self._key_rr_index += 1
+        self.llm_client = self._get_or_create_client(key_entry)
+        return self.llm_client
+
+    def _get_usage_from_response(self, response) -> dict:
+        try:
+            usage = response.usage
+            return {
+                "prompt_tokens": usage.input_tokens,
+                "completion_tokens": usage.output_tokens,
+                "total_tokens": usage.input_tokens + usage.output_tokens,
+            }
+        except AttributeError:
+            return None
+
+    def _is_adaptive_thinking_model(self):
+        model_lower = self.model.lower()
+        return "opus-4-7" in model_lower or "opus-4.7" in model_lower
+
+    def _build_thinking_config(self):
+        if self._is_adaptive_thinking_model():
+            return {"type": "adaptive"}
+        return {
+            "type": "enabled",
+            "budget_tokens": self.thinking_budget or DEFAULT_THINKING_BUDGET,
+        }
+
+    def _split_system_and_messages(self, messages):
+        system_parts = []
+        request_messages = []
+
+        for message in messages:
+            role = message.get("role") or "user"
+            content = message.get("content", [])
+            if role == "system":
+                if isinstance(content, str):
+                    system_parts.append(content)
+                elif isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, str):
+                            system_parts.append(item)
+                        elif isinstance(item, dict) and item.get("type") == "text":
+                            system_parts.append(item.get("text", ""))
+                continue
+
+            if role == "model":
+                role = "assistant"
+            request_messages.append({"role": role, "content": content})
+
+        system = "\n".join(part for part in system_parts if part)
+        return system or None, request_messages
+
+    def _extract_text(self, response):
+        text_parts = []
+        for block in getattr(response, "content", []) or []:
+            text = getattr(block, "text", None)
+            if text:
+                text_parts.append(text)
+        return "\n".join(text_parts)
+
+    def _extract_thoughts_and_answer(self, response):
+        thoughts = []
+        answer_parts = []
+
+        for block in getattr(response, "content", []) or []:
+            block_type = getattr(block, "type", None)
+            if block_type in {"thinking", "reasoning"}:
+                thought = (
+                    getattr(block, "thinking", None)
+                    or getattr(block, "text", None)
+                    or ""
+                )
+                if thought:
+                    thoughts.append(thought)
+                continue
+
+            text = getattr(block, "text", None)
+            if text:
+                answer_parts.append(text)
+
+        return "\n".join(thoughts), "\n".join(answer_parts)
+
+    def _build_message_request(
+        self,
+        messages,
+        temperature=0.0,
+        max_new_tokens=None,
+        force_thinking=False,
+        **kwargs,
+    ):
+        local_kwargs = dict(kwargs)
+        resolved_temperature = _resolve_sampling_value(self.temperature, temperature)
+        resolved_top_p = _resolve_sampling_value(
+            self.top_p, local_kwargs.pop("top_p", None)
+        )
+        system, request_messages = self._split_system_and_messages(messages)
+
+        request_kwargs = {
+            "model": self.model,
+            "messages": request_messages,
+            "max_tokens": max_new_tokens if max_new_tokens else DEFAULT_MAX_TOKENS,
+            **local_kwargs,
+        }
+        if system:
+            request_kwargs["system"] = system
+        if resolved_temperature is not None and not (self.thinking or force_thinking):
+            request_kwargs["temperature"] = resolved_temperature
+        if resolved_top_p is not None and not (self.thinking or force_thinking):
+            request_kwargs["top_p"] = resolved_top_p
+        if self.thinking or force_thinking:
+            request_kwargs["thinking"] = self._build_thinking_config()
+
+        return request_kwargs
+
+    @backoff.on_exception(
+        backoff.expo,
+        (APIConnectionError, APIError, RateLimitError),
+        max_time=DEFAULT_MAX_TIME,
+    )
+    def generate(self, messages, temperature=0.0, max_new_tokens=None, **kwargs):
+        client = self._next_client()
+        response = client.messages.create(
+            **self._build_message_request(
+                messages,
+                temperature=temperature,
+                max_new_tokens=max_new_tokens,
+                **kwargs,
+            )
+        )
+        self.last_usage = self._get_usage_from_response(response)
+        if self.thinking:
+            _, answer = self._extract_thoughts_and_answer(response)
+            return answer
+        return self._extract_text(response)
+
+    @backoff.on_exception(
+        backoff.expo,
+        (APIConnectionError, APIError, RateLimitError),
+        max_time=DEFAULT_MAX_TIME,
+    )
+    def generate_with_thinking(
+        self, messages, temperature=0.0, max_new_tokens=None, **kwargs
+    ):
+        client = self._next_client()
+        response = client.messages.create(
+            **self._build_message_request(
+                messages,
+                temperature=temperature,
+                max_new_tokens=max_new_tokens,
+                force_thinking=True,
+                **kwargs,
+            )
+        )
+        self.last_usage = self._get_usage_from_response(response)
+        thoughts, answer = self._extract_thoughts_and_answer(response)
+        return f"<thoughts>\n{thoughts}\n</thoughts>\n\n<answer>\n{answer}\n</answer>\n"
+
+
 import logging as _logging
 
 _gemini_rotation_logger = _logging.getLogger("desktopenv.gemini_rotation")
@@ -777,23 +1018,29 @@ class _GeminiKeyRotationMixin:
                 "mime_type": mime_type,
             }
             if block["type"] in {"image", "video"}:
-                block["resolution"] = self._interaction_resolution_from_media_resolution(
-                    getattr(part, "media_resolution", None)
+                block["resolution"] = (
+                    self._interaction_resolution_from_media_resolution(
+                        getattr(part, "media_resolution", None)
+                    )
                 )
             return block
 
         file_data = getattr(part, "file_data", None)
         if file_data is not None:
             mime_type = getattr(file_data, "mime_type", None) or "application/pdf"
-            uri = getattr(file_data, "file_uri", None) or getattr(file_data, "uri", None)
+            uri = getattr(file_data, "file_uri", None) or getattr(
+                file_data, "uri", None
+            )
             block = {
                 "type": self._interaction_content_type_from_mime_type(mime_type),
                 "uri": uri,
                 "mime_type": mime_type,
             }
             if block["type"] in {"image", "video"}:
-                block["resolution"] = self._interaction_resolution_from_media_resolution(
-                    getattr(part, "media_resolution", None)
+                block["resolution"] = (
+                    self._interaction_resolution_from_media_resolution(
+                        getattr(part, "media_resolution", None)
+                    )
                 )
             return block
 
@@ -1016,9 +1263,7 @@ class LMMEngineGemini(_GeminiKeyRotationMixin, LMMEngine):
         )
         return types.ThinkingConfig(**thinking_kwargs, thinkingBudget=budget)
 
-    def _build_interaction_thinking_config(
-        self, include_thoughts=None, force=False
-    ):
+    def _build_interaction_thinking_config(self, include_thoughts=None, force=False):
         if not self.thinking and not force:
             return {}
 
@@ -1605,9 +1850,14 @@ class LMMEngineAnthropicBedrock(LMMEngine):
             return None
 
     def _is_adaptive_thinking_model(self):
-        """Check if the model supports adaptive thinking (Sonnet 4.6, Opus 4.6)."""
+        """Check if the model supports adaptive thinking."""
         model_lower = self.model.lower()
-        return "sonnet-4-6" in model_lower or "opus-4-6" in model_lower
+        return (
+            "sonnet-4-6" in model_lower
+            or "opus-4-6" in model_lower
+            or "opus-4-7" in model_lower
+            or "opus-4.7" in model_lower
+        )
 
     def _build_thinking_config(self):
         """Build the thinking configuration based on model type.
@@ -1832,11 +2082,7 @@ class LMMEngineAnthropicBedrock(LMMEngine):
 
     @staticmethod
     def _extract_converse_content(response_body):
-        return (
-            response_body.get("output", {})
-            .get("message", {})
-            .get("content", [])
-        )
+        return response_body.get("output", {}).get("message", {}).get("content", [])
 
     def _extract_converse_answer(self, response_body):
         answer_parts = []
@@ -1910,9 +2156,7 @@ class LMMEngineAnthropicBedrock(LMMEngine):
         request_kwargs = self._build_converse_request(
             messages=messages,
             inference_config=inference_config,
-            additional_model_request_fields={
-                "thinking": self._build_thinking_config()
-            },
+            additional_model_request_fields={"thinking": self._build_thinking_config()},
             **kwargs,
         )
 

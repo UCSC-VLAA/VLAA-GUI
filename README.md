@@ -21,13 +21,34 @@ This repository accompanies our paper, **"[Knowing When to `STOP`, `RECOVER`, an
 <p align="center">
   <img src="assets/results.png" alt="Main benchmark results for VLAA-GUI" width="92%">
 </p>
-
 ## Highlights
 
 - VLAA-GUI reaches **77.5%** on **OSWorld-Verified**.
 - VLAA-GUI reaches **61.0%** on **WindowsAgentArena**.
 - Three of five evaluated backbones surpass human performance on OSWorld in a single pass.
 - With Sonnet 4.6, VLAA-GUI at **15 action steps** already exceeds the best published **50-step** system reported in the paper.
+
+## Examples
+
+<p align="center">
+  <img src="assets/chrome.mp4" alt="chrome_example" width="92%">
+</p>
+
+>  **Chrome · Startup Page Fix**
+
+> “On my Surface Pro, whenever I launch Chrome it always opens ‘funbrain.com’. I don't want this. I cleared my cache but it still happens—can you fix it?”
+
+
+
+<p align="center">
+  <img src="assets/vs_code.mp4" alt="chrome_example" width="92%">
+</p>
+
+> **VS Code · Settings Modification**
+
+>  “I want to make the tabs wrapped over multiple lines when exceeding available space, please help modify the setting of VS Code.”
+
+
 
 ## Method Overview
 

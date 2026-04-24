@@ -10,14 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="https://ucsc-vlaa.github.io/VLAA-GUI">Project Page</a>
-  |
-  <span>arXiv coming soon</span>
-  |
-  <a href="https://github.com/UCSC-VLAA/VLAA-GUI">Code</a>
+  <a href="https://arxiv.org/abs/2604.21375"><img alt="arXiv" src="https://img.shields.io/badge/arXiv-2604.21375-b31b1b"></a>
+  <a href="https://ucsc-vlaa.github.io/VLAA-GUI"><img alt="Project page" src="https://img.shields.io/badge/Project-Page-2f80ed"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache--2.0-green"></a>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776ab?logo=python&amp;logoColor=white">
 </p>
 
-This repository accompanies our paper, **"Knowing When to `STOP`, `RECOVER`, and `SEARCH`: A Modular Framework for GUI Automation."**
+This repository accompanies our paper, **"[Knowing When to `STOP`, `RECOVER`, and `SEARCH`: A Modular Framework for GUI Automation](https://arxiv.org/abs/2604.21375)"**.
 
 <p align="center">
   <img src="assets/results.png" alt="Main benchmark results for VLAA-GUI" width="92%">
@@ -114,14 +113,16 @@ This checkout includes a lightweight OSWorld handoff note in [`osworld_setup/REA
 
 ## Citation
 
-If you find this repository useful, please cite our work. The final arXiv link will be added once it is public.
+If you find this repository useful, please cite our arXiv preprint.
 
 ```bibtex
 @misc{vlaagui2026,
   title={Knowing When to STOP, RECOVER, and SEARCH: A Modular Framework for GUI Automation},
   author={Qijun Han and Haoqin Tu and Zijun Wang and Haoyue Dai and Yiyang Zhou and Nancy Lau and Alvaro A. Cardenas and Yuhui Xu and Ran Xu and Caiming Xiong and Zeyu Zheng and Huaxiu Yao and Yuyin Zhou and Cihang Xie},
   year={2026},
-  note={arXiv coming soon}
+  eprint={2604.21375},
+  archivePrefix={arXiv},
+  url={https://arxiv.org/abs/2604.21375}
 }
 ```
 

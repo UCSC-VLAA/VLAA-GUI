@@ -3,7 +3,6 @@ import logging
 import platform
 import re
 import textwrap
-from typing import Dict, Optional
 
 from vlaa_gui.core.module import BaseModule
 from vlaa_gui.utils.common_utils import (
@@ -34,7 +33,7 @@ class VerifierAgent(BaseModule):
     )
 
     # -- Task category definitions ----------------------------------------
-    _TASK_CATEGORIES: Dict[str, Dict] = {
+    _TASK_CATEGORIES: dict[str, dict] = {
         "file_save_office": {
             "keywords": [
                 ["libreoffice"],
@@ -221,7 +220,7 @@ class VerifierAgent(BaseModule):
     }
 
     def __init__(
-        self, engine_params: Dict, platform: str = platform.system().lower()
+        self, engine_params: dict, platform: str = platform.system().lower()
     ) -> None:
         super().__init__(engine_params, platform)
         self.agent = self._create_agent(PROCEDURAL_MEMORY.VERIFIER_PROMPT)
@@ -338,7 +337,7 @@ class VerifierAgent(BaseModule):
             }
         return bool(value)
 
-    def _extract_first_json_dict(self, text: str) -> Optional[Dict]:
+    def _extract_first_json_dict(self, text: str) -> dict | None:
         if not text:
             return None
 
@@ -409,7 +408,7 @@ class VerifierAgent(BaseModule):
         lowered = (text or "").lower()
         return any(phrase in lowered for phrase in self._UNCERTAINTY_PHRASES)
 
-    def _parse_response(self, response: str) -> Dict:
+    def _parse_response(self, response: str) -> dict:
         default = {
             "complete": False,
             "reason": "Unable to verify completion.",
@@ -451,10 +450,10 @@ class VerifierAgent(BaseModule):
     def verify_completion(
         self,
         instruction: str,
-        observation: Dict,
+        observation: dict,
         trajectory: str = "",
-        executor_plan: Optional[str] = None,
-    ) -> Dict:
+        executor_plan: str | None = None,
+    ) -> dict:
         truncated_traj = trajectory if len(trajectory) <= 3000 else trajectory[-3000:]
 
         obs_text_parts = []

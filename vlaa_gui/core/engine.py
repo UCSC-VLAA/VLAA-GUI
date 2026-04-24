@@ -1,6 +1,5 @@
 import os
 import base64
-import json
 
 import backoff
 import boto3
@@ -736,6 +735,130 @@ class _GeminiKeyRotationMixin:
         return self._genai_clients[key]
 
     @staticmethod
+    def _interaction_content_type_from_mime_type(mime_type):
+        if not mime_type:
+            return "document"
+        if mime_type.startswith("image/"):
+            return "image"
+        if mime_type.startswith("audio/"):
+            return "audio"
+        if mime_type.startswith("video/"):
+            return "video"
+        return "document"
+
+    @staticmethod
+    def _interaction_resolution_from_media_resolution(media_resolution):
+        value = getattr(media_resolution, "value", media_resolution)
+        if not value:
+            return "high"
+        normalized = str(value).lower()
+        if "ultra" in normalized:
+            return "ultra_high"
+        if "low" in normalized:
+            return "low"
+        if "medium" in normalized:
+            return "medium"
+        return "high"
+
+    def _interaction_block_from_part(self, part):
+        text = getattr(part, "text", None)
+        if text is not None:
+            return {"type": "text", "text": text}
+
+        inline_data = getattr(part, "inline_data", None)
+        if inline_data is not None:
+            mime_type = getattr(inline_data, "mime_type", None) or "application/pdf"
+            data = getattr(inline_data, "data", None)
+            if isinstance(data, bytes):
+                data = base64.b64encode(data).decode("utf-8")
+            block = {
+                "type": self._interaction_content_type_from_mime_type(mime_type),
+                "data": data,
+                "mime_type": mime_type,
+            }
+            if block["type"] in {"image", "video"}:
+                block["resolution"] = self._interaction_resolution_from_media_resolution(
+                    getattr(part, "media_resolution", None)
+                )
+            return block
+
+        file_data = getattr(part, "file_data", None)
+        if file_data is not None:
+            mime_type = getattr(file_data, "mime_type", None) or "application/pdf"
+            uri = getattr(file_data, "file_uri", None) or getattr(file_data, "uri", None)
+            block = {
+                "type": self._interaction_content_type_from_mime_type(mime_type),
+                "uri": uri,
+                "mime_type": mime_type,
+            }
+            if block["type"] in {"image", "video"}:
+                block["resolution"] = self._interaction_resolution_from_media_resolution(
+                    getattr(part, "media_resolution", None)
+                )
+            return block
+
+        return None
+
+    def _interaction_turn_from_content(self, content):
+        role = getattr(content, "role", None) or "user"
+        if role == "assistant":
+            role = "model"
+
+        blocks = []
+        for part in getattr(content, "parts", []) or []:
+            block = self._interaction_block_from_part(part)
+            if block is not None:
+                blocks.append(block)
+
+        if not blocks:
+            return None
+        return {"role": role, "content": blocks}
+
+    def _prepare_interaction_input(self, messages):
+        contents, system_instruction = self._prepare_genai_contents(messages)
+        input_turns = []
+        for content in contents:
+            turn = self._interaction_turn_from_content(content)
+            if turn is not None:
+                input_turns.append(turn)
+        return input_turns, system_instruction
+
+    @staticmethod
+    def _interaction_output_text(output):
+        if isinstance(output, dict):
+            return output.get("text") if output.get("type") == "text" else None
+        if getattr(output, "type", None) == "text":
+            return getattr(output, "text", None)
+        return None
+
+    def _extract_interaction_text(self, response):
+        outputs = getattr(response, "outputs", None)
+        if outputs is not None:
+            text_parts = [
+                text
+                for output in outputs
+                if (text := self._interaction_output_text(output))
+            ]
+            return "\n".join(text_parts).strip()
+
+        return getattr(response, "text", "") or ""
+
+    @staticmethod
+    def _get_interaction_usage_from_response(response) -> dict:
+        try:
+            usage = response.usage
+            prompt_tokens = usage.total_input_tokens or 0
+            completion_tokens = usage.total_output_tokens or 0
+            total_tokens = usage.total_tokens or (prompt_tokens + completion_tokens)
+            return {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            }
+        except AttributeError:
+            return None
+
+    @staticmethod
     def _is_rate_limit_error(exc):
         """Return True if *exc* is a Gemini rate-limit / quota error."""
         # openai SDK RateLimitError (used by Gemini OpenAI-compat endpoint)
@@ -814,6 +937,7 @@ class LMMEngineGemini(_GeminiKeyRotationMixin, LMMEngine):
         self.include_thoughts = include_thoughts
         self.temperature = kwargs.get("temperature")
         self.top_p = kwargs.get("top_p")
+        self.api_version = kwargs.get("api_version") or None
         self.request_interval = 0 if rate_limit == -1 else 60.0 / rate_limit
         self.llm_client = None
         self.genai_client = None
@@ -821,6 +945,10 @@ class LMMEngineGemini(_GeminiKeyRotationMixin, LMMEngine):
 
     def _get_usage_from_response(self, response) -> dict:
         """Extract token usage from API response."""
+        interaction_usage = self._get_interaction_usage_from_response(response)
+        if interaction_usage is not None:
+            return interaction_usage
+
         try:
             usage = response.usage
             return {
@@ -887,6 +1015,46 @@ class LMMEngineGemini(_GeminiKeyRotationMixin, LMMEngine):
             )
         )
         return types.ThinkingConfig(**thinking_kwargs, thinkingBudget=budget)
+
+    def _build_interaction_thinking_config(
+        self, include_thoughts=None, force=False
+    ):
+        if not self.thinking and not force:
+            return {}
+
+        config = {}
+        thinking_level = self._resolve_thinking_level()
+        config["thinking_level"] = (
+            thinking_level if thinking_level is not None else "high"
+        )
+        if include_thoughts is not None:
+            config["thinking_summaries"] = "auto" if include_thoughts else "none"
+        return config
+
+    def _build_interaction_generation_config(
+        self,
+        resolved_temperature,
+        resolved_top_p,
+        max_new_tokens,
+        include_thoughts=None,
+        force_thinking=False,
+    ):
+        generation_config = {
+            "max_output_tokens": max_new_tokens
+            if max_new_tokens
+            else DEFAULT_MAX_TOKENS,
+        }
+        if resolved_temperature is not None:
+            generation_config["temperature"] = resolved_temperature
+        if resolved_top_p is not None:
+            generation_config["top_p"] = resolved_top_p
+        generation_config.update(
+            self._build_interaction_thinking_config(
+                include_thoughts=include_thoughts,
+                force=force_thinking,
+            )
+        )
+        return generation_config
 
     def _prepare_genai_contents(self, messages):
         contents = []
@@ -1004,6 +1172,34 @@ class LMMEngineGemini(_GeminiKeyRotationMixin, LMMEngine):
         thoughts = []
         answer_parts = []
 
+        outputs = getattr(response, "outputs", None)
+        if outputs is not None:
+            for output in outputs:
+                output_type = (
+                    output.get("type")
+                    if isinstance(output, dict)
+                    else getattr(output, "type", None)
+                )
+                if output_type == "thought":
+                    summary = (
+                        output.get("summary")
+                        if isinstance(output, dict)
+                        else getattr(output, "summary", None)
+                    )
+                    for item in summary or []:
+                        text = (
+                            item.get("text")
+                            if isinstance(item, dict)
+                            else getattr(item, "text", None)
+                        )
+                        if text:
+                            thoughts.append(text)
+                else:
+                    text = self._interaction_output_text(output)
+                    if text:
+                        answer_parts.append(text)
+            return "\n".join(thoughts).strip(), "\n".join(answer_parts).strip()
+
         for candidate in getattr(response, "candidates", []) or []:
             parts = getattr(getattr(candidate, "content", None), "parts", []) or []
             for part in parts:
@@ -1041,38 +1237,38 @@ class LMMEngineGemini(_GeminiKeyRotationMixin, LMMEngine):
         resolved_top_p = _resolve_sampling_value(
             self.top_p, local_kwargs.pop("top_p", None)
         )
-        contents, system_instruction = self._prepare_genai_contents(messages)
-
-        config_kwargs = {
-            "temperature": resolved_temperature,
-            "max_output_tokens": max_new_tokens
-            if max_new_tokens
-            else DEFAULT_MAX_TOKENS,
-            "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_HIGH,
-        }
-        if resolved_top_p is not None:
-            config_kwargs["top_p"] = resolved_top_p
-        if system_instruction:
-            config_kwargs["system_instruction"] = system_instruction
-
-        thinking_config = self._build_thinking_config(
+        input_turns, system_instruction = self._prepare_interaction_input(messages)
+        generation_config = self._build_interaction_generation_config(
+            resolved_temperature=resolved_temperature,
+            resolved_top_p=resolved_top_p,
             max_new_tokens=max_new_tokens,
             include_thoughts=include_thoughts,
-            force=force_thinking,
+            force_thinking=force_thinking,
         )
-        if thinking_config is not None:
-            config_kwargs["thinking_config"] = thinking_config
 
         # Internal control kwargs not accepted by Google API.
         local_kwargs.pop("system_prompt", None)
         local_kwargs.pop("image_content", None)
+        explicit_system_instruction = local_kwargs.pop("system_instruction", None)
+        if explicit_system_instruction is not None:
+            system_instruction = explicit_system_instruction
+        extra_generation_config = local_kwargs.pop("generation_config", None)
+        if extra_generation_config:
+            generation_config.update(extra_generation_config)
+        local_kwargs.setdefault("store", False)
+        if self.api_version and "api_version" not in local_kwargs:
+            local_kwargs["api_version"] = self.api_version
 
-        response = client.models.generate_content(
-            model=self.model,
-            contents=contents,
-            config=types.GenerateContentConfig(**config_kwargs),
+        request_kwargs = {
+            "model": self.model,
+            "input": input_turns,
+            "generation_config": generation_config,
             **local_kwargs,
-        )
+        }
+        if system_instruction:
+            request_kwargs["system_instruction"] = system_instruction
+
+        response = client.interactions.create(**request_kwargs)
         self.last_usage = self._get_usage_from_response(response)
         return response
 
@@ -1096,7 +1292,7 @@ class LMMEngineGemini(_GeminiKeyRotationMixin, LMMEngine):
                 _, answer = self._extract_thoughts_and_answer(response)
                 if answer:
                     return answer
-            return response.text
+            return self._extract_interaction_text(response)
 
         return self._invoke_with_rotation(_do_generate)
 
@@ -1356,8 +1552,8 @@ class LMMEngineAnthropicBedrock(LMMEngine):
             return True
         return any(keyword in error_message for keyword in throttling_keywords)
 
-    def _invoke_model(self, body):
-        """Invoke the model, rotating through credential sets on throttling.
+    def _converse(self, request_kwargs):
+        """Call Converse, rotating through credential sets on throttling.
 
         Raises ``BedrockRateLimitError`` immediately when a throttling /
         rate-limit error is detected so that the caller can abandon the
@@ -1369,7 +1565,7 @@ class LMMEngineAnthropicBedrock(LMMEngine):
         for _ in range(attempts):
             client = self._next_client()
             try:
-                return client.invoke_model(body=body, modelId=self.model)
+                return client.converse(**request_kwargs)
             except ClientError as err:
                 last_error = err
                 if self._should_rotate_on_error(err):
@@ -1394,12 +1590,16 @@ class LMMEngineAnthropicBedrock(LMMEngine):
         """Extract token usage from API response."""
         try:
             usage = response_body.get("usage", {})
-            input_tokens = usage.get("input_tokens", 0)
-            output_tokens = usage.get("output_tokens", 0)
+            input_tokens = usage.get("inputTokens", usage.get("input_tokens", 0))
+            output_tokens = usage.get("outputTokens", usage.get("output_tokens", 0))
+            total_tokens = usage.get(
+                "totalTokens",
+                usage.get("total_tokens", input_tokens + output_tokens),
+            )
             return {
                 "prompt_tokens": input_tokens,
                 "completion_tokens": output_tokens,
-                "total_tokens": input_tokens + output_tokens,
+                "total_tokens": total_tokens,
             }
         except (AttributeError, KeyError):
             return None
@@ -1423,13 +1623,32 @@ class LMMEngineAnthropicBedrock(LMMEngine):
             "budget_tokens": DEFAULT_MAX_TOKENS,
         }
 
+    @staticmethod
+    def _image_format_from_media_type(media_type):
+        if not media_type:
+            return "png"
+        return media_type.split("/")[-1].lower().replace("jpg", "jpeg")
+
+    @staticmethod
+    def _decode_bedrock_base64(data):
+        if isinstance(data, bytes):
+            return data
+        if not data:
+            return None
+        try:
+            return base64.b64decode(data)
+        except (ValueError, base64.binascii.Error):
+            return None
+
     def _convert_messages_to_bedrock_format(self, messages):
-        """Convert messages from OpenAI/Anthropic format to Bedrock format."""
+        """Convert messages from OpenAI/Anthropic format to Converse format."""
         system_prompt = None
         bedrock_messages = []
 
         for message in messages:
-            role = message.get("role", "user")
+            role = message.get("role") or "user"
+            if role == "model":
+                role = "assistant"
             content = message.get("content", [])
 
             if role == "system":
@@ -1450,160 +1669,257 @@ class LMMEngineAnthropicBedrock(LMMEngine):
             # Convert content to Bedrock format
             bedrock_content = []
             if isinstance(content, str):
-                bedrock_content.append({"type": "text", "text": content})
+                bedrock_content.append({"text": content})
             elif isinstance(content, list):
                 for item in content:
                     if isinstance(item, str):
-                        bedrock_content.append({"type": "text", "text": item})
+                        bedrock_content.append({"text": item})
                     elif isinstance(item, dict):
                         item_type = item.get("type")
                         if item_type == "text":
-                            bedrock_content.append(
-                                {"type": "text", "text": item.get("text", "")}
-                            )
+                            bedrock_content.append({"text": item.get("text", "")})
                         elif item_type == "image":
                             # Anthropic native format
                             source = item.get("source", {})
-                            bedrock_content.append(
-                                {
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": source.get(
-                                            "media_type", "image/png"
-                                        ),
-                                        "data": source.get("data", ""),
-                                    },
-                                }
+                            media_type = source.get("media_type", "image/png")
+                            image_bytes = self._decode_bedrock_base64(
+                                source.get("data", b"")
                             )
+                            if image_bytes is not None:
+                                bedrock_content.append(
+                                    {
+                                        "image": {
+                                            "format": self._image_format_from_media_type(
+                                                media_type
+                                            ),
+                                            "source": {"bytes": image_bytes},
+                                        }
+                                    }
+                                )
+                        elif "image" in item:
+                            image = item.get("image", {})
+                            media_type = image.get("media_type", "image/png")
+                            image_bytes = self._decode_bedrock_base64(
+                                image.get("data", b"")
+                            )
+                            if image_bytes is not None:
+                                bedrock_content.append(
+                                    {
+                                        "image": {
+                                            "format": image.get(
+                                                "format",
+                                                self._image_format_from_media_type(
+                                                    media_type
+                                                ),
+                                            ),
+                                            "source": {"bytes": image_bytes},
+                                        }
+                                    }
+                                )
+                            else:
+                                bedrock_content.append(item)
+                        elif "text" in item:
+                            bedrock_content.append({"text": item.get("text", "")})
+                        elif "reasoningContent" in item:
+                            bedrock_content.append(
+                                {"reasoningContent": item["reasoningContent"]}
+                            )
+                        elif "toolUse" in item or "toolResult" in item:
+                            bedrock_content.append(item)
                         elif item_type == "image_url":
                             # OpenAI format - convert base64 data URL
                             image_url = item.get("image_url", {})
                             url = image_url.get("url", "")
                             if url.startswith("data:"):
-                                # Parse data URL: data:image/png;base64,<data>
                                 try:
                                     header, b64_data = url.split(",", 1)
                                     media_type = header.split(";")[0].replace(
                                         "data:", ""
                                     )
+                                except ValueError:
+                                    continue
+                                image_bytes = self._decode_bedrock_base64(b64_data)
+                                if image_bytes is not None:
                                     bedrock_content.append(
                                         {
-                                            "type": "image",
-                                            "source": {
-                                                "type": "base64",
-                                                "media_type": media_type,
-                                                "data": b64_data,
-                                            },
+                                            "image": {
+                                                "format": self._image_format_from_media_type(
+                                                    media_type
+                                                ),
+                                                "source": {"bytes": image_bytes},
+                                            }
                                         }
                                     )
-                                except ValueError:
-                                    pass
+                        elif item_type is None:
+                            bedrock_content.append(item)
 
             bedrock_messages.append({"role": role, "content": bedrock_content})
 
         return system_prompt, bedrock_messages
 
+    @staticmethod
+    def _build_converse_inference_config(max_tokens, temperature=None, top_p=None):
+        inference_config = {"maxTokens": max_tokens}
+        if temperature is not None:
+            inference_config["temperature"] = temperature
+        if top_p is not None:
+            inference_config["topP"] = top_p
+        return inference_config
+
+    def _build_converse_request(
+        self,
+        messages,
+        inference_config,
+        additional_model_request_fields=None,
+        **kwargs,
+    ):
+        system_prompt, bedrock_messages = self._convert_messages_to_bedrock_format(
+            messages
+        )
+        request_kwargs = {
+            "modelId": self.model,
+            "messages": bedrock_messages,
+            "inferenceConfig": inference_config,
+        }
+        if system_prompt:
+            request_kwargs["system"] = [{"text": system_prompt}]
+        if additional_model_request_fields:
+            request_kwargs["additionalModelRequestFields"] = dict(
+                additional_model_request_fields
+            )
+
+        self._apply_converse_kwargs(request_kwargs, kwargs)
+        return request_kwargs
+
+    @staticmethod
+    def _apply_converse_kwargs(request_kwargs, kwargs):
+        local_kwargs = dict(kwargs)
+        local_kwargs.pop("system_prompt", None)
+        local_kwargs.pop("image_content", None)
+
+        inference_config = local_kwargs.pop(
+            "inferenceConfig", local_kwargs.pop("inference_config", None)
+        )
+        if inference_config:
+            request_kwargs.setdefault("inferenceConfig", {}).update(inference_config)
+
+        additional_fields = local_kwargs.pop(
+            "additionalModelRequestFields",
+            local_kwargs.pop("additional_model_request_fields", None),
+        )
+        if additional_fields:
+            request_kwargs.setdefault("additionalModelRequestFields", {}).update(
+                additional_fields
+            )
+
+        field_aliases = {
+            "additionalModelResponseFieldPaths": "additionalModelResponseFieldPaths",
+            "additional_model_response_field_paths": "additionalModelResponseFieldPaths",
+            "guardrailConfig": "guardrailConfig",
+            "guardrail_config": "guardrailConfig",
+            "promptVariables": "promptVariables",
+            "prompt_variables": "promptVariables",
+            "requestMetadata": "requestMetadata",
+            "request_metadata": "requestMetadata",
+            "serviceTier": "serviceTier",
+            "service_tier": "serviceTier",
+            "toolConfig": "toolConfig",
+            "tool_config": "toolConfig",
+        }
+        for source_key, target_key in field_aliases.items():
+            if source_key in local_kwargs:
+                request_kwargs[target_key] = local_kwargs.pop(source_key)
+
+    @staticmethod
+    def _extract_converse_content(response_body):
+        return (
+            response_body.get("output", {})
+            .get("message", {})
+            .get("content", [])
+        )
+
+    def _extract_converse_answer(self, response_body):
+        answer_parts = []
+        for block in self._extract_converse_content(response_body):
+            if "text" in block:
+                answer_parts.append(block.get("text", ""))
+        return "\n".join(answer_parts)
+
+    def _extract_converse_thoughts_and_answer(self, response_body):
+        thoughts_parts = []
+        answer_parts = []
+
+        for block in self._extract_converse_content(response_body):
+            reasoning_content = block.get("reasoningContent")
+            if reasoning_content:
+                reasoning_text = reasoning_content.get("reasoningText", {})
+                if isinstance(reasoning_text, dict):
+                    thought = reasoning_text.get("text", "")
+                else:
+                    thought = str(reasoning_text)
+                if thought:
+                    thoughts_parts.append(thought)
+            elif "text" in block:
+                answer_parts.append(block.get("text", ""))
+
+        return "\n".join(thoughts_parts), "\n".join(answer_parts)
+
     @backoff.on_exception(backoff.expo, (ClientError,), max_time=DEFAULT_MAX_TIME)
     def generate(self, messages, temperature=0.0, max_new_tokens=None, **kwargs):
         resolved_temperature = _resolve_sampling_value(self.temperature, temperature)
         resolved_top_p = _resolve_sampling_value(self.top_p, kwargs.pop("top_p", None))
-        system_prompt, bedrock_messages = self._convert_messages_to_bedrock_format(
-            messages
+        max_tokens = max_new_tokens if max_new_tokens else DEFAULT_MAX_TOKENS
+        additional_model_request_fields = None
+        if self.thinking:
+            additional_model_request_fields = {
+                "thinking": self._build_thinking_config()
+            }
+            if not self._is_adaptive_thinking_model():
+                max_tokens = DEFAULT_MAX_TOKENS + 4096
+
+        inference_config = self._build_converse_inference_config(
+            max_tokens=max_tokens,
+            temperature=resolved_temperature if not self.thinking else None,
+            top_p=resolved_top_p if not self.thinking else None,
+        )
+        request_kwargs = self._build_converse_request(
+            messages=messages,
+            inference_config=inference_config,
+            additional_model_request_fields=additional_model_request_fields,
+            **kwargs,
         )
 
-        body_dict = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": max_new_tokens if max_new_tokens else DEFAULT_MAX_TOKENS,
-            "messages": bedrock_messages,
-        }
-
-        if system_prompt:
-            body_dict["system"] = system_prompt
-
-        if resolved_temperature is not None and not self.thinking:
-            body_dict["temperature"] = resolved_temperature
-        if resolved_top_p is not None and not self.thinking:
-            body_dict["top_p"] = resolved_top_p
+        response_body = self._converse(request_kwargs)
+        self.last_usage = self._get_usage_from_response(response_body)
 
         if self.thinking:
-            body_dict["thinking"] = self._build_thinking_config()
-            if not self._is_adaptive_thinking_model():
-                body_dict["max_tokens"] = DEFAULT_MAX_TOKENS + 4096
-
-        body = json.dumps(body_dict)
-
-        try:
-            response = self._invoke_model(body=body)
-            response_body = json.loads(response.get("body").read())
-            self.last_usage = self._get_usage_from_response(response_body)
-
-            if self.thinking:
-                # Extract thinking and answer from response
-                # Adaptive thinking may produce interleaved thinking/text blocks
-                content = response_body.get("content", [])
-                answer_parts = []
-                for block in content:
-                    if block.get("type") == "thinking":
-                        pass
-                    elif block.get("type") == "text":
-                        answer_parts.append(block.get("text", ""))
-                return "\n".join(answer_parts) if answer_parts else ""
-
-            # Standard response
-            content = response_body.get("content", [])
-            if content and len(content) > 0:
-                return content[0].get("text", "")
-            return ""
-
-        except ClientError as err:
-            raise err
+            _, answer = self._extract_converse_thoughts_and_answer(response_body)
+            return answer
+        return self._extract_converse_answer(response_body)
 
     @backoff.on_exception(backoff.expo, (ClientError,), max_time=DEFAULT_MAX_TIME)
     def generate_with_thinking(
         self, messages, temperature=0.0, max_new_tokens=None, **kwargs
     ):
         """Generate the next message based on previous messages, and keeps the thinking tokens."""
-        system_prompt, bedrock_messages = self._convert_messages_to_bedrock_format(
-            messages
-        )
-
         adaptive = self._is_adaptive_thinking_model()
         default_max = DEFAULT_MAX_TOKENS if adaptive else DEFAULT_MAX_TOKENS + 4096
-        body_dict = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": max_new_tokens if max_new_tokens else default_max,
-            "messages": bedrock_messages,
-            "thinking": self._build_thinking_config(),
-        }
+        inference_config = self._build_converse_inference_config(
+            max_tokens=max_new_tokens if max_new_tokens else default_max,
+        )
+        request_kwargs = self._build_converse_request(
+            messages=messages,
+            inference_config=inference_config,
+            additional_model_request_fields={
+                "thinking": self._build_thinking_config()
+            },
+            **kwargs,
+        )
 
-        if system_prompt:
-            body_dict["system"] = system_prompt
-
-        body = json.dumps(body_dict)
-
-        try:
-            response = self._invoke_model(body=body)
-            response_body = json.loads(response.get("body").read())
-            self.last_usage = self._get_usage_from_response(response_body)
-
-            content = response_body.get("content", [])
-            thoughts_parts = []
-            answer_parts = []
-
-            for block in content:
-                if block.get("type") == "thinking":
-                    thoughts_parts.append(block.get("thinking", ""))
-                elif block.get("type") == "text":
-                    answer_parts.append(block.get("text", ""))
-
-            thoughts = "\n".join(thoughts_parts)
-            answer = "\n".join(answer_parts)
-
-            return f"<thoughts>\n{thoughts}\n</thoughts>\n\n<answer>\n{answer}\n</answer>\n"
-
-        except ClientError as err:
-            raise err
+        response_body = self._converse(request_kwargs)
+        self.last_usage = self._get_usage_from_response(response_body)
+        thoughts, answer = self._extract_converse_thoughts_and_answer(response_body)
+        return f"<thoughts>\n{thoughts}\n</thoughts>\n\n<answer>\n{answer}\n</answer>\n"
 
 
 class LMMEngineQwen(LMMEngine):
@@ -2024,33 +2340,6 @@ class LMMEngineArk(LMMEngine):
         )
 
 
-# class LMMEngineLiteLLM(LMMEngine):
-#     def __init__(self, model=None, api_key=None, rate_limit=-1, **kwargs):
-#         assert model is not None, "model must be provided"
-#         self.model = model
-#         self.api_key = api_key
-#         self.request_interval = 0 if rate_limit == -1 else 60.0 / rate_limit
-
-#     @backoff.on_exception(
-#         backoff.expo, (APIConnectionError, APIError, RateLimitError), max_time=DEFAULT_MAX_TIME
-#     )
-#     def generate(self, messages, temperature=0.0, max_new_tokens=None, **kwargs):
-#         api_key = self.api_key
-#         if api_key is None:
-#             raise ValueError(
-#                 "An API key needs to be provided in either the api_key parameter or as an environment variable named LITELLM_API_KEY"
-#             )
-
-#         response = completion(
-#             model=self.model,
-#             api_key=api_key,
-#             max_tokens=max_new_tokens if max_new_tokens else DEFAULT_MAX_TOKENS,
-#             temperature=temperature,
-#             **kwargs,
-#         )
-#         return response.choices[0].message.content
-
-
 class LMMEngineGeminiSearch(_GeminiKeyRotationMixin, LMMEngine):
     def __init__(
         self,
@@ -2070,9 +2359,10 @@ class LMMEngineGeminiSearch(_GeminiKeyRotationMixin, LMMEngine):
         self._genai_clients = {}
         self.request_interval = 0 if rate_limit == -1 else 60.0 / rate_limit
         self.llm_client = None
-        self.grounding_tool = types.Tool(google_search=types.GoogleSearch())
         self.temperature = kwargs.get("temperature")
         self.top_p = kwargs.get("top_p")
+        self.api_version = kwargs.get("api_version") or None
+        self.last_usage = None
 
     @backoff.on_exception(
         backoff.expo,
@@ -2090,30 +2380,42 @@ class LMMEngineGeminiSearch(_GeminiKeyRotationMixin, LMMEngine):
                 self.top_p, local_kwargs.pop("top_p", None)
             )
 
-            contents, system_instruction = self._prepare_genai_contents(messages)
-
-            config_kwargs = {
-                "temperature": resolved_temperature,
+            input_turns, system_instruction = self._prepare_interaction_input(messages)
+            generation_config = {
                 "max_output_tokens": max_new_tokens
                 if max_new_tokens
                 else DEFAULT_MAX_TOKENS,
-                "tools": [self.grounding_tool],
             }
+            if resolved_temperature is not None:
+                generation_config["temperature"] = resolved_temperature
             if resolved_top_p is not None:
-                config_kwargs["top_p"] = resolved_top_p
-            if system_instruction:
-                config_kwargs["system_instruction"] = system_instruction
+                generation_config["top_p"] = resolved_top_p
 
-            config = types.GenerateContentConfig(**config_kwargs)
+            local_kwargs.pop("system_prompt", None)
+            local_kwargs.pop("image_content", None)
+            explicit_system_instruction = local_kwargs.pop("system_instruction", None)
+            if explicit_system_instruction is not None:
+                system_instruction = explicit_system_instruction
+            extra_generation_config = local_kwargs.pop("generation_config", None)
+            if extra_generation_config:
+                generation_config.update(extra_generation_config)
+            local_kwargs.setdefault("store", False)
+            if self.api_version and "api_version" not in local_kwargs:
+                local_kwargs["api_version"] = self.api_version
 
-            response = client.models.generate_content(
-                model=self.model,
-                contents=contents,
-                config=config,
+            request_kwargs = {
+                "model": self.model,
+                "input": input_turns,
+                "generation_config": generation_config,
+                "tools": [{"type": "google_search"}],
                 **local_kwargs,
-            )
+            }
+            if system_instruction:
+                request_kwargs["system_instruction"] = system_instruction
 
-            return response.text
+            response = client.interactions.create(**request_kwargs)
+            self.last_usage = self._get_interaction_usage_from_response(response)
+            return self._extract_interaction_text(response)
 
         return self._invoke_with_rotation(_do_generate)
 

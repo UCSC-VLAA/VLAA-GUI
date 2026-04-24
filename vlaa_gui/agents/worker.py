@@ -1,15 +1,11 @@
 import logging
-import json
-import re
 import textwrap
-from typing import Dict, List, Tuple, Optional
 import platform
 from functools import partial
 
 from vlaa_gui.agents.grounding import ACI
 from vlaa_gui.agents.gate_agent import GateAgent
 from vlaa_gui.core.module import BaseModule
-from vlaa_gui.core.knowledge import KnowledgeBase
 from vlaa_gui.memory.procedural_memory import PROCEDURAL_MEMORY
 from vlaa_gui.core.engine import OpenAIEmbeddingEngine
 from vlaa_gui.utils.common_utils import (
@@ -33,16 +29,14 @@ logger = logging.getLogger("desktopenv.agent")
 class Worker(BaseModule):
     def __init__(
         self,
-        engine_params: Dict,
+        engine_params: dict,
         grounding_agent: ACI,
-        reflection_engine_params: Optional[Dict] = None,
-        local_kb_path: str = "kb",
+        reflection_engine_params: dict | None = None,
         embedding_engine=OpenAIEmbeddingEngine(),
         platform: str = platform.system().lower(),
         enable_reflection: bool = True,
         observation_type: str = "screenshot",
-        planning_type: str = "iterative",
-        search_engine: Optional[str] = None,
+        search_engine: str | None = None,
         memory_type: str = "null",
         use_task_experience: bool = False,
         coding_agent_flag: bool = False,
@@ -77,12 +71,10 @@ class Worker(BaseModule):
         self.reflection_engine_params = reflection_engine_params or self.engine_params
 
         self.grounding_agent = grounding_agent
-        self.local_kb_path = local_kb_path
         self.embedding_engine = embedding_engine
         self.enable_reflection = enable_reflection
         self.use_task_experience = use_task_experience
         self.observation_type = observation_type
-        self.planning_type = planning_type
         self.memory_type = memory_type
         self.search_engine = search_engine
         self.lexical_weight = lexical_weight
@@ -127,7 +119,7 @@ class Worker(BaseModule):
             observation_type=self.observation_type,
             coding_agent=self.coding_agent_flag,
             search_agent=self.search_engine == "search_agent",
-            planning_type=self.planning_type,
+            planning_type="iterative",
             enable_gate=self.enable_gate,
             loop_detection=self.loop_detection,
             feasibility_check=self.feasibility_check,
@@ -149,22 +141,6 @@ class Worker(BaseModule):
         self.reflection_agent = self._create_agent(
             reflection_prompt, self.reflection_engine_params
         )
-        self.judger_agent = self._create_agent(
-            pm.ACTION_JUDGER_PROMPT.format(
-                N_PLANNING=self.action_tts_num,
-                N_INDEX=self.action_tts_num - 1,
-                width=self.engine_params.get("grounding_width"),
-                height=self.engine_params.get("grounding_height"),
-            )
-        )
-
-        self.knowledge_base = KnowledgeBase(
-            embedding_engine=self.embedding_engine,
-            local_kb_path=self.local_kb_path,
-            platform=self.platform,
-            engine_params=self.engine_params,
-            lexical_weight=self.lexical_weight,
-        )
 
         self.turn_count = 0
         self.worker_history = []
@@ -183,7 +159,7 @@ class Worker(BaseModule):
         if len(self.reflection_agent.messages) > self.max_trajector_length + 1:
             self.reflection_agent.remove_message_at(1)
 
-    def _format_code_agent_result_for_reflection(self, result: Dict) -> str:
+    def _format_code_agent_result_for_reflection(self, result: dict) -> str:
         """Format a concise code-agent execution note for reflection."""
         if not isinstance(result, dict):
             return ""
@@ -259,16 +235,16 @@ class Worker(BaseModule):
 
         return False
 
-    def generate_reflection(self, instruction: str, obs: Dict) -> Tuple[str, str]:
+    def generate_reflection(self, instruction: str, obs: dict) -> tuple[str, str]:
         """
         Generate a reflection based on the current observation and instruction.
 
         Args:
             instruction (str): The task instruction.
-            obs (Dict): The current observation containing the screenshot.
+            obs (dict): The current observation containing the screenshot.
 
         Returns:
-            Optional[str, str]: The generated reflection text and thoughts, if any (turn_count > 0).
+            tuple[str, str]: The generated reflection text and thoughts, if any (turn_count > 0).
 
         Side Effects:
             - Updates reflection agent's history
@@ -326,7 +302,7 @@ class Worker(BaseModule):
         return reflection, reflection_thoughts
 
 
-    def generate_next_action_iteratively(
+    def generate_next_action(
         self, obs: dict, instruction: str
     ) -> tuple[dict, list[str]]:
         """Generate next action iteratively
@@ -337,22 +313,19 @@ class Worker(BaseModule):
         Returns:
             Tuple containing executor info dictionary and list of action codes
         """
-        assert self.planning_type == "iterative", (
-            "Planner called with incorrect planning type."
-        )
 
         self.grounding_agent.assign_screenshot(obs)
         self.grounding_agent.set_task_instruction(instruction)
         self.rag_flag = self.turn_count == 0  # TODO: make this more flexible
 
-        def _has_memory(experience: Optional[str]) -> bool:
+        def _has_memory(experience: str | None) -> bool:
             return bool(experience) and experience != "None"
 
         def _retrieve_iterative_experience(
             query: str, retrieval_stage: str
         ) -> tuple[str, str]:
-            memory_keys: List[str] = []
-            memory_chunks: List[str] = []
+            memory_keys: list[str] = []
+            memory_chunks: list[str] = []
 
             # narrative: task-level memory
             if self.memory_type == "mixed":
@@ -749,98 +722,3 @@ class Worker(BaseModule):
         res = res[: res.find("(Grounded Action)")]
         res += f"(Grounded Action)\n```python\n{action}\n```\n"
         return res
-
-    def select(self, instruction, screenshot, responses, history_cache):
-        """
-        Select the best plan from multiple options using the codebase's engine infrastructure
-
-        Args:
-            instruction: The task instruction
-            screenshot: PIL Image of the current screen
-            responses: List of plan options to choose from
-            history_cache: List of previous steps for context
-            max_retry: Maximum number of retry attempts
-
-        Returns:
-            Selected plan from the responses list
-        """
-        width, height = screenshot.width, screenshot.height
-        image = screenshot.resize((width, height))
-
-        # Format the system prompt
-        system_prompt = self.procedural_memory.ACTION_JUDGER_PROMPT.format(
-            N_PLANNING=len(responses),
-            N_INDEX=len(responses) - 1,
-            width=width,
-            height=height,
-            CLIENT_PASSWORD=getattr(self, "client_password", "default"),
-        )
-
-        # Build the user message
-        if len(history_cache) == 0:
-            history_cache = ["No history available. The action just started"]
-
-        lines = [
-            f"The goal of the task is:\n{instruction}",
-            "Here are the past history:",
-        ]
-        lines += [
-            f"### Past step {idx}:\n{step}" for idx, step in enumerate(history_cache)
-        ]
-        lines += ["Here are the different plans to compare:"]
-        lines += [f"### Index {idx}:\n{plan}" for idx, plan in enumerate(responses)]
-        user_message = "\n".join(lines)
-
-        try:
-            call_llm_safe(
-                self.judger_agent,
-                temperature=self.temperature,
-                agent_type="judger",
-                system_prompt=system_prompt,
-                user_message=user_message,
-                image_content=image,
-            )
-            prediction = self.judger_agent.messages[-1].get("text_content", "")
-            prediction_text = (
-                prediction if isinstance(prediction, str) else str(prediction)
-            )
-
-            payload = prediction_text
-            json_match = re.search(
-                r"<json>\s*(\{.*?\})\s*</json>", prediction_text, flags=re.DOTALL
-            )
-            if json_match:
-                payload = json_match.group(1)
-            elif "```json" in prediction_text:
-                code_block = prediction_text.split("```json", 1)[1].split("```", 1)[0]
-                payload = code_block.strip()
-
-            selected_index = None
-            try:
-                parsed = json.loads(payload)
-                if isinstance(parsed, dict) and "index" in parsed:
-                    selected_index = int(parsed["index"])
-            except Exception:
-                index_match = re.search(r'"index"\s*:\s*(-?\d+)', prediction_text)
-                if index_match:
-                    selected_index = int(index_match.group(1))
-                else:
-                    numeric_match = re.search(r"\b(-?\d+)\b", prediction_text)
-                    if numeric_match:
-                        selected_index = int(numeric_match.group(1))
-
-            if selected_index is not None:
-                clamped_index = max(0, min(selected_index, len(responses) - 1))
-                return responses[clamped_index]
-
-            logger.warning(
-                "Judger output did not contain a valid index; returning first response. Raw output: %s",
-                prediction_text,
-            )
-
-        except Exception as e:
-            logger.warning(f"Failed to use LLM engine for selection: {e}")
-
-        # Final fallback: return the first response
-        logger.warning("All selection attempts failed, returning first response")
-        return responses[0]

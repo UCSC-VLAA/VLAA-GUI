@@ -1,11 +1,9 @@
 import logging
 import os
 import platform
-from typing import Dict, List, Optional, Tuple
 
 from vlaa_gui.agents.grounding import ACI
 from vlaa_gui.agents.worker import Worker
-from vlaa_gui.utils.common_utils import Node
 from vlaa_gui.core.engine import (
     OpenAIEmbeddingEngine,
     GeminiEmbeddingEngine,
@@ -22,7 +20,7 @@ class UIAgent:
 
     def __init__(
         self,
-        engine_params: Dict,
+        engine_params: dict,
         grounding_agent: ACI,
         platform: str = platform.system().lower(),
         action_space: str = "pyautogui",
@@ -50,7 +48,7 @@ class UIAgent:
         """Reset agent state"""
         pass
 
-    def predict(self, instruction: str, observation: Dict) -> Tuple[Dict, List[str]]:
+    def predict(self, instruction: str, observation: dict) -> tuple[dict, list[str]]:
         """Generate next action prediction
 
         Args:
@@ -62,25 +60,6 @@ class UIAgent:
         """
         pass
 
-    def update_narrative_memory(self, trajectory: str) -> None:
-        """Update narrative memory with task trajectory
-
-        Args:
-            trajectory: String containing task execution trajectory
-        """
-        pass
-
-    def update_episodic_memory(self, meta_data: Dict, subtask_trajectory: str) -> str:
-        """Update episodic memory with subtask trajectory
-
-        Args:
-            meta_data: Metadata about current subtask execution
-            subtask_trajectory: String containing subtask execution trajectory
-
-        Returns:
-            Updated subtask trajectory
-        """
-        pass
 
 
 class Agent(UIAgent):
@@ -88,20 +67,19 @@ class Agent(UIAgent):
 
     def __init__(
         self,
-        engine_params: Dict,
+        engine_params: dict,
         grounding_agent: ACI,
         platform: str = platform.system().lower(),
         with_reflection: bool = True,
         action_space: str = "pyautogui",
         observation_type: str = "screenshot",
-        search_engine: Optional[str] = None,
-        reflection_engine_params: Optional[Dict] = None,
+        search_engine: str | None = None,
+        reflection_engine_params: dict | None = None,
         memory_root_path: str = os.getcwd(),
         memory_folder_name: str = "agent_memory",
         memory_type: str = "null",
-        kb_release_tag: str = "v0.2.2",
         embedding_engine_type: str = "openai",
-        embedding_engine_params: Dict = {},
+        embedding_engine_params: dict = {},
         coding_agent_flag: bool = False,
         action_tts_num: int = 1,
         debug: bool = False,
@@ -140,7 +118,6 @@ class Agent(UIAgent):
         self.memory_root_path = memory_root_path
         self.memory_folder_name = memory_folder_name
         self.lexical_weight = lexical_weight
-        self.kb_release_tag = kb_release_tag
         self.memory_type = memory_type
         self.local_kb_path = os.path.join(
             self.memory_root_path, self.memory_folder_name
@@ -177,12 +154,10 @@ class Agent(UIAgent):
             engine_params=self.engine_params,
             grounding_agent=self.grounding_agent,
             reflection_engine_params=self.reflection_engine_params,
-            local_kb_path=self.local_kb_path,
             embedding_engine=self.embedding_engine,
             platform=self.platform,
             enable_reflection=self.with_reflection,
             observation_type=self.observation_type,
-            planning_type="iterative",
             search_engine=self.engine,
             memory_type=self.memory_type,
             use_task_experience=self.memory_type == "mixed",
@@ -200,14 +175,8 @@ class Agent(UIAgent):
         self.needs_next_subtask: bool = True
         self.step_count: int = 0
         self.turn_count: int = 0
-        self.failure_subtask: Optional[Node] = None
-        self.should_send_action: bool = False
-        self.completed_tasks: List[Node] = []
-        self.current_subtask: Optional[Node] = None
-        self.subtasks: List[Node] = []
         self.search_query: str = ""
-        self.subtask_status: str = "Start"  # Start, In, Done
-        self.verifier_feedback: Optional[Dict] = None
+        self.verifier_feedback: dict | None = None
 
     def reset_executor_state(self) -> None:
         """Reset executor and step counter"""
@@ -238,5 +207,5 @@ class Agent(UIAgent):
         self.reset_executor_state()
 
 
-    def predict(self, instruction: str, observation: Dict) -> Tuple[Dict, List[str]]:
-        return self.executor.generate_next_action_iteratively(observation, instruction)
+    def predict(self, instruction: str, observation: dict) -> tuple[dict, list[str]]:
+        return self.executor.generate_next_action(observation, instruction)

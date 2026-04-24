@@ -1,17 +1,7 @@
 import logging
-import urllib.parse
 from vlaa_gui.memory.procedural_memory import PROCEDURAL_MEMORY
-from vlaa_gui.utils.common_utils import (
-    annotate_screenshot_with_click,
-    call_llm_formatted,
-    parse_code_from_string,
-    create_pyautogui_code,
-)
-from vlaa_gui.core.mllm import LMMAgent
 
 import os
-import time
-import json
 
 
 logger = logging.getLogger("desktopenv.searcher_agent")

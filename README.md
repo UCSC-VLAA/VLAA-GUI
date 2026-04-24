@@ -31,7 +31,7 @@ This repository accompanies our paper, **"[Knowing When to `STOP`, `RECOVER`, an
 ## Examples
 
 <p align="center">
-  <img src="assets/chrome.mp4" alt="chrome_example" width="92%">
+  <img src="assets/chrome.gif" alt="chrome_example" width="92%">
 </p>
 
 >  **Chrome · Startup Page Fix**
@@ -41,7 +41,7 @@ This repository accompanies our paper, **"[Knowing When to `STOP`, `RECOVER`, an
 
 
 <p align="center">
-  <img src="assets/vs_code.mp4" alt="chrome_example" width="92%">
+  <img src="assets/vs_code.gif" alt="chrome_example" width="92%">
 </p>
 
 > **VS Code · Settings Modification**

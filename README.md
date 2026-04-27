@@ -21,6 +21,7 @@ This repository accompanies our paper, **"[Knowing When to `STOP`, `RECOVER`, an
 <p align="center">
   <img src="assets/results.png" alt="Main benchmark results for VLAA-GUI" width="92%">
 </p>
+
 ## Highlights
 
 - VLAA-GUI reaches **77.5%** on **OSWorld-Verified**.
@@ -114,11 +115,7 @@ Then fill in the sections you need for your setup:
 
 ## Running VLAA-GUI Locally
 
-The default local entry point is:
-
-```bash
-agent
-```
+The default local entry is under ```vlaa_gui/agent```.
 
 Notes:
 

@@ -4,7 +4,6 @@ import os
 import re
 from pathlib import Path
 from collections import Counter
-from typing import List, Tuple, Dict, Any
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -86,7 +85,7 @@ class KnowledgeBase(BaseModule):
         self.tfidf_vectorizer = None
         self.lexical_corpus = []
 
-    def _extract_keywords(self, text: str) -> List[str]:
+    def _extract_keywords(self, text: str) -> list[str]:
         """Extract keywords from text using simple NLP preprocessing"""
         # Convert to lowercase and remove punctuation
         text = re.sub(r"[^\w\s]", " ", text.lower())
@@ -134,7 +133,7 @@ class KnowledgeBase(BaseModule):
         return keywords
 
     def _compute_lexical_scores(
-        self, query: str, candidate_texts: List[str]
+        self, query: str, candidate_texts: list[str]
     ) -> np.ndarray:
         """Compute lexical similarity scores using TF-IDF and cosine similarity"""
         if not candidate_texts:

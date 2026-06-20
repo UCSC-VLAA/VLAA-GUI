@@ -7,34 +7,21 @@ from google.genai import types
 from PIL import Image
 
 from vlaa_gui.core.engine import (
-    LMMEngineAnthropic,
-    LMMEngineAnthropicBedrockMantle,
-    LMMEngineAnthropicVertex,
     LMMEngineAnthropicBedrock,
     LMMEngineArk,
-    LMMEngineAzureOpenAI,
     LMMEngineGemini,
     LMMEngineQwen,
     LMMEngineHuggingFace,
-    # LMMEngineLiteLLM,
     LMMEngineOpenAI,
-    LMMEngineOpenRouter,
-    LMMEngineParasail,
     LMMEnginevLLM,
 )
 
 ENGINE_REGISTRY = {
     "openai": LMMEngineOpenAI,
-    "anthropic": LMMEngineAnthropic,
-    "anthropic_bedrock_mantle": LMMEngineAnthropicBedrockMantle,
-    "anthropic_vertex": LMMEngineAnthropicVertex,
     "anthropic_bedrock": LMMEngineAnthropicBedrock,
-    "azure": LMMEngineAzureOpenAI,
     "vllm": LMMEnginevLLM,
     "huggingface": LMMEngineHuggingFace,
     "gemini": LMMEngineGemini,
-    "open_router": LMMEngineOpenRouter,
-    "parasail": LMMEngineParasail,
     "ark": LMMEngineArk,
     "qwen": LMMEngineQwen,
 }
@@ -232,11 +219,8 @@ class LMMAgent:
             (
                 LMMEngineArk,
                 LMMEngineOpenAI,
-                LMMEngineAzureOpenAI,
                 LMMEngineHuggingFace,
                 LMMEngineQwen,
-                LMMEngineOpenRouter,
-                LMMEngineParasail,
             ),
         ):
             # infer role from previous message
@@ -289,15 +273,7 @@ class LMMAgent:
             self.messages.append(message)
 
         # For API-style inference from Anthropic
-        elif isinstance(
-            self.engine,
-            (
-                LMMEngineAnthropic,
-                LMMEngineAnthropicVertex,
-                LMMEngineAnthropicBedrock,
-                LMMEngineAnthropicBedrockMantle,
-            ),
-        ):
+        elif isinstance(self.engine, LMMEngineAnthropicBedrock):
             # infer role from previous message
             if role != "user":
                 if self.messages[-1]["role"] == "system":
